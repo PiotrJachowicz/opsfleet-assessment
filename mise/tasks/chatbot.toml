@@ -1,0 +1,10 @@
+[chatbot-setup]
+description = "Install chatbot service dependencies"
+dir = "{{config_root}}/services/chatbot"
+run = "uv sync"
+
+[chatbot]
+description = "Run chatbot Starlette service"
+dir = "{{config_root}}/services/chatbot"
+depends = ["chatbot-setup"]
+run = "uv run uvicorn chatbot.app:app --host 127.0.0.1 --port 8000 --log-level info"

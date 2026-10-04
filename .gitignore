@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.python-version
+.env
+.DS_Store
+services/chatbot/.venv/
+services/chatbot/.python-version
+docs/superpowers/

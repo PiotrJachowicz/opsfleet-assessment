@@ -1,0 +1,6 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[task_config]
+includes = ["mise/tasks/*.toml"]
