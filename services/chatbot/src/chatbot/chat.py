@@ -1,7 +1,7 @@
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,20 +15,37 @@ from chatbot.models import Conversation, Message, MessageRole
 from chatbot.schemas import ChatRequest
 
 
-def _chunk_text(content: Any) -> str:
+def _iter_chunk_parts(content: Any) -> Iterator[tuple[str, str]]:
+    """Yield (event_name, text) parts from a LangChain chunk content value."""
     if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                parts.append(block)
-            elif isinstance(block, dict) and "text" in block:
-                parts.append(str(block["text"]))
-            elif hasattr(block, "text"):
-                parts.append(str(getattr(block, "text") or ""))
-        return "".join(parts)
-    return str(content or "")
+        if content:
+            yield "token", content
+        return
+
+    if not isinstance(content, list):
+        text = str(content or "")
+        if text:
+            yield "token", text
+        return
+
+    for block in content:
+        if isinstance(block, str):
+            if block:
+                yield "token", block
+            continue
+        if not isinstance(block, dict):
+            if hasattr(block, "text") and getattr(block, "text"):
+                yield "token", str(block.text)
+            continue
+
+        block_type = block.get("type")
+        if block_type in {"thinking", "reasoning"}:
+            text = block.get("thinking") or block.get("reasoning") or ""
+            if text:
+                yield "thinking", str(text)
+            continue
+        if "text" in block and block.get("text"):
+            yield "token", str(block["text"])
 
 
 def _to_langchain_messages(rows: list[Message]) -> list[BaseMessage]:
@@ -126,17 +143,16 @@ async def stream_chat_turn(
     lc_messages = _to_langchain_messages(history)
 
     model = create_chat_model(settings)
-    chunks: list[str] = []
+    answer_chunks: list[str] = []
     try:
         async for chunk in model.astream(lc_messages):
-            text = _chunk_text(chunk.content)
-            if not text:
-                continue
-            chunks.append(text)
-            yield {"event": "token", "data": text}
+            for event_name, text in _iter_chunk_parts(chunk.content):
+                if event_name == "token":
+                    answer_chunks.append(text)
+                yield {"event": event_name, "data": text}
     except asyncio.CancelledError:
         await _persist_assistant(
-            session, conversation=conversation, content="".join(chunks)
+            session, conversation=conversation, content="".join(answer_chunks)
         )
         raise
     except Exception as exc:  # noqa: BLE001 - surface to SSE client
@@ -144,7 +160,7 @@ async def stream_chat_turn(
         return
 
     await _persist_assistant(
-        session, conversation=conversation, content="".join(chunks)
+        session, conversation=conversation, content="".join(answer_chunks)
     )
     yield {
         "event": "done",

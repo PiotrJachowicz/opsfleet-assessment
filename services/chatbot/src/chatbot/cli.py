@@ -70,21 +70,36 @@ def _send_chat(
             print(f"\nError: HTTP {response.status_code}: {detail}", file=sys.stderr)
             return conversation_id
 
-        print("Assistant> ", end="", flush=True)
+        current_section: str | None = None
         for event, data in _iter_sse(response):
             if event == "meta":
                 try:
                     conversation_id = json.loads(data)["conversation_id"]
                 except (json.JSONDecodeError, KeyError, TypeError):
                     pass
+            elif event == "thinking":
+                if current_section != "thinking":
+                    if current_section is not None:
+                        print()
+                    print("Thinking> ", end="", flush=True)
+                    current_section = "thinking"
+                print(data, end="", flush=True)
             elif event == "token":
+                if current_section != "token":
+                    if current_section is not None:
+                        print()
+                    print("Assistant> ", end="", flush=True)
+                    current_section = "token"
                 print(data, end="", flush=True)
             elif event == "error":
                 try:
                     detail = json.loads(data).get("detail", data)
                 except json.JSONDecodeError:
                     detail = data
-                print(f"\nError: {detail}", file=sys.stderr)
+                if current_section is not None:
+                    print()
+                print(f"Error: {detail}", file=sys.stderr)
+                current_section = None
             elif event == "done":
                 try:
                     conversation_id = json.loads(data).get(
@@ -92,7 +107,8 @@ def _send_chat(
                     )
                 except json.JSONDecodeError:
                     pass
-        print()
+        if current_section is not None:
+            print()
 
     return conversation_id
 
@@ -103,7 +119,7 @@ def main() -> None:
     user_id = settings.chat_user_id
     conversation_id: str | None = None
 
-    with httpx.Client(timeout=httpx.Timeout(60.0, connect=5.0)) as client:
+    with httpx.Client(timeout=httpx.Timeout(120.0, connect=5.0)) as client:
         _check_health(client, base_url)
 
         print("Chatbot CLI")

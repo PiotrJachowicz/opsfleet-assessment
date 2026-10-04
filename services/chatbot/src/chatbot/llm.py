@@ -8,4 +8,6 @@ def create_chat_model(settings: Settings) -> ChatGoogleGenerativeAI:
         model=settings.gemini_model,
         api_key=settings.gemini_api_key,
         vertexai=False,
+        include_thoughts=settings.gemini_include_thoughts,
+        thinking_level=settings.gemini_thinking_level,
     )

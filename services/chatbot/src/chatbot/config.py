@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     log_level: str = "info"
     database_url: str = "postgresql+asyncpg://chatbot:chatbot@127.0.0.1:5433/chatbot"
     gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.8-flash"
+    gemini_include_thoughts: bool = True
+    gemini_thinking_level: str = "medium"
     chat_base_url: str = "http://127.0.0.1:8000"
     chat_user_id: str = "demo"
 

@@ -44,7 +44,9 @@ mise run chat
 
 Interactive REPL: type messages, stream replies, `/new` starts a fresh conversation, `/quit` exits.
 
-Optional env (in `services/chatbot/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`.
+When the model returns thought summaries, the CLI prints a `Thinking>` section before `Assistant>`.
+
+Optional env (in `services/chatbot/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`, `GEMINI_INCLUDE_THOUGHTS`, `GEMINI_THINKING_LEVEL` (`minimal` / `low` / `medium` / `high`).
 
 ## Chat (SSE / curl)
 
