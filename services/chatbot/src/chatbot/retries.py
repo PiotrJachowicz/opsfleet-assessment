@@ -19,7 +19,7 @@ from chatbot.config import Settings
 logger = logging.getLogger(__name__)
 
 _RETRY_AFTER_RE = re.compile(
-    r"(?:retry in|retryDelay['\"]?\s*:\s*['\"]?)(\d+(?:\.\d+)?)\s*s",
+    r"(?:retry\s+in|retryDelay['\"]?\s*:\s*['\"]?)\s*(\d+(?:\.\d+)?)\s*s",
     re.IGNORECASE,
 )
 
