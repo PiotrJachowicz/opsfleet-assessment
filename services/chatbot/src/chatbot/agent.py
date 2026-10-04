@@ -7,6 +7,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from chatbot.config import Settings, get_settings
 from chatbot.llm import create_chat_model
+from chatbot.retries import build_model_retry_middleware
 from chatbot.tools import list_schema, run_sql
 
 SYSTEM_PROMPT = """
@@ -20,6 +21,7 @@ For any question that needs numbers, trends, or comparisons:
 4. Answer using only the query results. If a query fails, repair and retry.
 
 Never invent metrics. Prefer concise executive-friendly answers with key figures.
+Prefer fewer, denser SQL queries over many small ones when summarizing the dataset.
 """.strip()
 
 
@@ -31,6 +33,7 @@ def get_analysis_agent() -> CompiledStateGraph:
         model=model,
         tools=[list_schema, run_sql],
         system_prompt=SYSTEM_PROMPT,
+        middleware=[build_model_retry_middleware(settings)],
         name="retail-analyst",
     )
 

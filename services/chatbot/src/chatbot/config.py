@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-3.8-flash"
     gemini_include_thoughts: bool = True
     gemini_thinking_level: str = "medium"
+    gemini_max_retries: int = 5
+    gemini_retry_initial_delay: float = 2.0
+    gemini_retry_max_delay: float = 60.0
+    gemini_retry_backoff: float = 2.0
+    gemini_timeout_seconds: float = 120.0
     chat_base_url: str = "http://127.0.0.1:8000"
     chat_user_id: str = "demo"
     gcp_project: str = "ops-test-piotr"

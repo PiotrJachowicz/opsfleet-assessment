@@ -10,4 +10,6 @@ def create_chat_model(settings: Settings) -> ChatGoogleGenerativeAI:
         vertexai=False,
         include_thoughts=settings.gemini_include_thoughts,
         thinking_level=settings.gemini_thinking_level,
+        max_retries=settings.gemini_max_retries,
+        timeout=settings.gemini_timeout_seconds,
     )
