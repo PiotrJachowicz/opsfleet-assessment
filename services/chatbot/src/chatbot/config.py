@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     bq_max_rows: int = 100
     bq_max_bytes_billed: int = 1_000_000_000
     bq_timeout_seconds: float = 60.0
-    agent_recursion_limit: int = 8
+    agent_recursion_limit: int = 25
 
 
 @lru_cache
