@@ -24,3 +24,8 @@ description = "Start infra, migrate, and run chatbot with reload"
 depends = ["infra:up", "migrate"]
 dir = "{{config_root}}/services/chatbot"
 run = "uv run uvicorn chatbot.app:app --host 127.0.0.1 --port 8000 --reload"
+
+[chat]
+description = "Interactive chatbot CLI (server must already be running)"
+dir = "{{config_root}}/services/chatbot"
+run = "uv run chatbot-cli"

@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://chatbot:chatbot@127.0.0.1:5433/chatbot"
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
+    chat_base_url: str = "http://127.0.0.1:8000"
+    chat_user_id: str = "demo"
 
 
 @lru_cache

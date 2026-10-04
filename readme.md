@@ -34,7 +34,19 @@ curl http://127.0.0.1:8000/health
 curl -N http://127.0.0.1:8000/hello
 ```
 
-## Chat (SSE)
+## CLI
+
+With the server running (`mise run dev` in another terminal):
+
+```bash
+mise run chat
+```
+
+Interactive REPL: type messages, stream replies, `/new` starts a fresh conversation, `/quit` exits.
+
+Optional env (in `services/chatbot/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`.
+
+## Chat (SSE / curl)
 
 ```bash
 curl -N -X POST http://127.0.0.1:8000/chat \
