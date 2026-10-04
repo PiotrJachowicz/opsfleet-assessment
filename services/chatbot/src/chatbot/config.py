@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8000
     log_level: str = "info"
+    database_url: str = "postgresql+asyncpg://chatbot:chatbot@127.0.0.1:5433/chatbot"
+    gemini_api_key: str = ""
+    gemini_model: str = "gemini-2.5-flash"
 
 
 @lru_cache

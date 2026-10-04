@@ -1,0 +1,7 @@
+["infra:up"]
+description = "Start local Docker infra (Postgres)"
+run = "docker compose up -d --wait"
+
+["infra:down"]
+description = "Stop local Docker infra"
+run = "docker compose down"

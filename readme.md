@@ -3,19 +3,50 @@
 ## Prerequisites
 
 - [mise](https://mise.jdx.dev/)
-- uv is installed via mise tools
+- [Docker](https://docs.docker.com/get-docker/)
+- A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
 
-## Setup and run
+## Setup
 
 ```bash
 mise install
-mise run chatbot-setup
-mise run chatbot
+mise trust
+cp services/chatbot/.env.example services/chatbot/.env
 ```
+
+Put your key in `services/chatbot/.env` as `GEMINI_API_KEY=...`.
+
+## Run
+
+```bash
+mise run chatbot-setup
+mise run infra:up
+mise run migrate
+mise run dev
+```
+
+`mise run dev` starts Postgres (via `infra:up`), applies migrations, then runs the chatbot with reload.
 
 ## Smoke check
 
 ```bash
 curl http://127.0.0.1:8000/health
 curl -N http://127.0.0.1:8000/hello
+```
+
+## Chat (SSE)
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/chat \
+  -H 'content-type: application/json' \
+  -d '{"user_id":"demo","message":"Say hi in one sentence"}'
+```
+
+Reuse the `conversation_id` from the `meta` event for multiturn follow-ups.
+
+## Infra only
+
+```bash
+mise run infra:up
+mise run infra:down
 ```
