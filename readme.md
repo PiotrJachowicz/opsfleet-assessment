@@ -20,12 +20,12 @@ Put your key in `services/chatbot/.env` as `GEMINI_API_KEY=...`.
 
 ```bash
 mise run chatbot-setup
-mise run infra:up
-mise run migrate
 mise run dev
 ```
 
-`mise run dev` starts Postgres (via `infra:up`), applies migrations, then runs the chatbot with reload.
+`mise run dev` starts Postgres (`infra:up`), applies migrations, then runs the chatbot with reload.
+
+Postgres is published on host port **5433** (to avoid clashing with a local 5432 Postgres).
 
 ## Smoke check
 
