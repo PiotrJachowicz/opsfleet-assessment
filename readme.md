@@ -64,7 +64,9 @@ The agent can call BigQuery tools (`list_schema`, `run_sql`). The CLI shows:
 
 Try: `What were the top 5 product brands by revenue last year?`
 
-Optional env (in `services/chatbot/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`, `GEMINI_INCLUDE_THOUGHTS`, `GEMINI_THINKING_LEVEL`, `GCP_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`.
+Optional env (in `services/chatbot/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`, `GEMINI_INCLUDE_THOUGHTS`, `GEMINI_THINKING_LEVEL`, `GEMINI_MAX_RETRIES`, `GEMINI_RETRY_*`, `GCP_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`.
+
+Transient Gemini `429` / `503` responses are retried with exponential backoff (and server `retryDelay` when present).
 
 ## Chat (SSE / curl)
 
