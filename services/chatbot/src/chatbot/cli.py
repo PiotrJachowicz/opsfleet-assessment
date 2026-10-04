@@ -91,6 +91,23 @@ def _send_chat(
                     print("Assistant> ", end="", flush=True)
                     current_section = "token"
                 print(data, end="", flush=True)
+            elif event == "tool":
+                if current_section is not None:
+                    print()
+                    current_section = None
+                try:
+                    payload = json.loads(data)
+                except json.JSONDecodeError:
+                    print(f"Tool> {data}", flush=True)
+                else:
+                    name = payload.get("name", "tool")
+                    status = payload.get("status", "")
+                    if status == "start":
+                        detail = payload.get("input") or ""
+                        print(f"Tool> {name} start {detail}", flush=True)
+                    else:
+                        detail = payload.get("output_preview") or ""
+                        print(f"Tool> {name} end {detail}", flush=True)
             elif event == "error":
                 try:
                     detail = json.loads(data).get("detail", data)
@@ -119,7 +136,7 @@ def main() -> None:
     user_id = settings.chat_user_id
     conversation_id: str | None = None
 
-    with httpx.Client(timeout=httpx.Timeout(120.0, connect=5.0)) as client:
+    with httpx.Client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
         _check_health(client, base_url)
 
         print("Chatbot CLI")

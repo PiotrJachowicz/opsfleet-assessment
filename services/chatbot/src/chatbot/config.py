@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     gemini_thinking_level: str = "medium"
     chat_base_url: str = "http://127.0.0.1:8000"
     chat_user_id: str = "demo"
+    gcp_project: str = "ops-test-piotr"
+    google_application_credentials: str = ""
+    bq_dataset: str = "bigquery-public-data.thelook_ecommerce"
+    bq_max_rows: int = 100
+    bq_max_bytes_billed: int = 1_000_000_000
+    bq_timeout_seconds: float = 60.0
+    agent_recursion_limit: int = 8
 
 
 @lru_cache

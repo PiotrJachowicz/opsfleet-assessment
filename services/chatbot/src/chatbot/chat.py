@@ -9,8 +9,8 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from chatbot.agent import agent_config, get_analysis_agent
 from chatbot.config import get_settings
-from chatbot.llm import create_chat_model
 from chatbot.models import Conversation, Message, MessageRole
 from chatbot.schemas import ChatRequest
 
@@ -46,6 +46,10 @@ def _iter_chunk_parts(content: Any) -> Iterator[tuple[str, str]]:
             continue
         if "text" in block and block.get("text"):
             yield "token", str(block["text"])
+
+
+def _message_text(content: Any) -> str:
+    return "".join(text for event, text in _iter_chunk_parts(content) if event == "token")
 
 
 def _to_langchain_messages(rows: list[Message]) -> list[BaseMessage]:
@@ -92,6 +96,13 @@ async def _persist_assistant(
     )
     conversation.updated_at = datetime.now(UTC)
     await session.commit()
+
+
+def _preview(value: Any, limit: int = 400) -> str:
+    text = value if isinstance(value, str) else json.dumps(value, default=str)
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
 
 
 async def stream_chat_turn(
@@ -142,17 +153,59 @@ async def stream_chat_turn(
     history = list(history_result.scalars().all())
     lc_messages = _to_langchain_messages(history)
 
-    model = create_chat_model(settings)
-    answer_chunks: list[str] = []
+    agent = get_analysis_agent()
+    final_answer_parts: list[str] = []
     try:
-        async for chunk in model.astream(lc_messages):
-            for event_name, text in _iter_chunk_parts(chunk.content):
-                if event_name == "token":
-                    answer_chunks.append(text)
-                yield {"event": event_name, "data": text}
+        async for event in agent.astream_events(
+            {"messages": lc_messages},
+            config=agent_config(settings),
+            version="v2",
+        ):
+            kind = event.get("event")
+            data = event.get("data") or {}
+
+            if kind == "on_chat_model_stream":
+                chunk = data.get("chunk")
+                if chunk is None:
+                    continue
+                for event_name, text in _iter_chunk_parts(chunk.content):
+                    yield {"event": event_name, "data": text}
+
+            elif kind == "on_chat_model_end":
+                output = data.get("output")
+                if isinstance(output, AIMessage) and not output.tool_calls:
+                    text = _message_text(output.content)
+                    if text:
+                        final_answer_parts.append(text)
+
+            elif kind == "on_tool_start":
+                yield {
+                    "event": "tool",
+                    "data": json.dumps(
+                        {
+                            "name": event.get("name") or data.get("name") or "tool",
+                            "status": "start",
+                            "input": _preview(data.get("input")),
+                        }
+                    ),
+                }
+
+            elif kind == "on_tool_end":
+                yield {
+                    "event": "tool",
+                    "data": json.dumps(
+                        {
+                            "name": event.get("name") or "tool",
+                            "status": "end",
+                            "output_preview": _preview(data.get("output")),
+                        }
+                    ),
+                }
     except asyncio.CancelledError:
         await _persist_assistant(
-            session, conversation=conversation, content="".join(answer_chunks)
+            session,
+            conversation=conversation,
+            content="\n".join(final_answer_parts).strip(),
         )
         raise
     except Exception as exc:  # noqa: BLE001 - surface to SSE client
@@ -160,7 +213,9 @@ async def stream_chat_turn(
         return
 
     await _persist_assistant(
-        session, conversation=conversation, content="".join(answer_chunks)
+        session,
+        conversation=conversation,
+        content="\n".join(final_answer_parts).strip(),
     )
     yield {
         "event": "done",

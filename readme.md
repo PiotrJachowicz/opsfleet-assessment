@@ -5,6 +5,7 @@
 - [mise](https://mise.jdx.dev/)
 - [Docker](https://docs.docker.com/get-docker/)
 - A Gemini API key from [Google AI Studio](https://aistudio.google.com/apikey)
+- Google Cloud auth for BigQuery public datasets
 
 ## Setup
 
@@ -15,6 +16,17 @@ cp services/chatbot/.env.example services/chatbot/.env
 ```
 
 Put your key in `services/chatbot/.env` as `GEMINI_API_KEY=...`.
+
+### BigQuery auth
+
+Either:
+
+```bash
+gcloud auth application-default login
+gcloud config set project ops-test-piotr
+```
+
+Or set `GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa.json` and `GCP_PROJECT=...` in `.env`.
 
 ## Run
 
@@ -44,9 +56,15 @@ mise run chat
 
 Interactive REPL: type messages, stream replies, `/new` starts a fresh conversation, `/quit` exits.
 
-When the model returns thought summaries, the CLI prints a `Thinking>` section before `Assistant>`.
+The agent can call BigQuery tools (`list_schema`, `run_sql`). The CLI shows:
 
-Optional env (in `services/chatbot/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`, `GEMINI_INCLUDE_THOUGHTS`, `GEMINI_THINKING_LEVEL` (`minimal` / `low` / `medium` / `high`).
+- `Tool>` for tool start/end
+- `Thinking>` for model thought summaries
+- `Assistant>` for the final answer tokens
+
+Try: `What were the top 5 product brands by revenue last year?`
+
+Optional env (in `services/chatbot/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`, `GEMINI_INCLUDE_THOUGHTS`, `GEMINI_THINKING_LEVEL`, `GCP_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`.
 
 ## Chat (SSE / curl)
 
