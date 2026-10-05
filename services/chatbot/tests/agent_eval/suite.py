@@ -28,6 +28,8 @@ class Case:
     runnable: bool = True
     # Preset JWT identity used when invoking the live agent (admin|calvin|levis).
     auth_preset: str = "admin"
+    # Optional multi-turn script on one conversation. Empty => single `question` turn.
+    turns: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -72,6 +74,11 @@ def load_suite(path: str | Path) -> Suite:
             runnable = runnable_raw.strip().lower() in {"1", "true", "yes", "on"}
         else:
             runnable = bool(runnable_raw)
+        turns = [
+            " ".join(str(turn).split())
+            for turn in (raw.get("turns") or [])
+            if str(turn).strip()
+        ]
         cases.append(
             Case(
                 id=int(raw["id"]),
@@ -80,6 +87,7 @@ def load_suite(path: str | Path) -> Suite:
                 evaluation_questions=_parse_questions(raw.get("evaluation_questions")),
                 runnable=runnable,
                 auth_preset=str(raw.get("auth_preset") or "admin").strip() or "admin",
+                turns=turns,
             )
         )
     return Suite(meta=meta, cases=cases, global_questions=global_questions)

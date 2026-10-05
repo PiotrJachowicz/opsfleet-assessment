@@ -15,8 +15,13 @@ Brand scope is enforced in SQL for `products` and `order_items` (see
 ## Reports
 
 HTML reports are stored under `REPORTS_DIR` (default `output/reports`) with rows
-in the `reports` table. Tools: `create_html_report`, `list_reports`, `get_report`
-(always filtered by the JWT `sub`).
+in the `reports` table. Tools: `create_html_report`, `list_reports`, `get_report`,
+`propose_delete_report` (always filtered by the JWT `sub`).
+
+Deletion is two-step: the model may only *propose* a delete. The next user
+message is inspected by the server for an exact `y`; only then is the report
+removed. Production should replace this chat `y` gate with a UI confirmation
+flow — documented in the root `readme.md`.
 
 ## LangSmith (optional)
 

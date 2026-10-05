@@ -93,6 +93,15 @@ The agent can create styled HTML report artifacts via tools:
 
 - `create_html_report` — writes `output/reports/*.html` and a per-user DB row
 - `list_reports` / `get_report` — scoped to the authenticated JWT user only
+- `propose_delete_report` — stages a delete and shows report details; **does not delete**
+
+**Deletion confirmation (prototype vs production):** In production, destructive
+report deletes would use a proper UI confirmation (modal / HITL interrupt) so the
+model never holds the delete trigger. In this prototype, after
+`propose_delete_report` the user must reply with exactly `y` (lowercase, alone).
+The **chat server** checks that string in application code and only then deletes
+the file + DB row. The model has no delete tool and cannot confirm deletion itself.
+Any other reply cancels the pending delete.
 
 `output/` is gitignored. Run migrations after pull (`mise run migrate`).
 

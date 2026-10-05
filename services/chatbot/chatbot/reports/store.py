@@ -7,9 +7,11 @@ import uuid
 from contextvars import ContextVar
 from datetime import UTC, datetime
 from html import escape
+from dataclasses import dataclass
 from pathlib import Path
+from threading import Lock
 
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from chatbot.auth import get_auth_context
@@ -22,6 +24,15 @@ _SessionLocal: sessionmaker[Session] | None = None
 _conversation_id_ctx: ContextVar[uuid.UUID | None] = ContextVar(
     "conversation_id", default=None
 )
+_pending_lock = Lock()
+_pending_deletions: dict[str, "PendingDeletion"] = {}
+
+
+@dataclass(frozen=True)
+class PendingDeletion:
+    report_id: uuid.UUID
+    title: str
+    file_path: str
 
 
 def set_conversation_id(conversation_id: uuid.UUID | None):
@@ -260,3 +271,103 @@ def get_report_for_user(report_id: str) -> dict:
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "html": html,
         }
+
+
+def propose_delete_report(report_id: str) -> dict:
+    """Stage a deletion for confirmation. Does not delete."""
+    meta = get_report_for_user(report_id)
+    user_id = _require_user_id()
+    pending = PendingDeletion(
+        report_id=uuid.UUID(meta["report_id"]),
+        title=str(meta["title"]),
+        file_path=str(meta["file_path"]),
+    )
+    with _pending_lock:
+        _pending_deletions[user_id] = pending
+    return {
+        "status": "awaiting_confirmation",
+        "report_id": meta["report_id"],
+        "title": meta["title"],
+        "file_path": meta["file_path"],
+        "created_at": meta.get("created_at"),
+        "instruction": (
+            "Reply with exactly y (lowercase) on its own line to permanently delete "
+            "this report. Any other reply cancels the pending deletion. "
+            "The server—not the model—enforces this confirmation."
+        ),
+    }
+
+
+def clear_pending_deletion(user_id: str) -> PendingDeletion | None:
+    with _pending_lock:
+        return _pending_deletions.pop(user_id, None)
+
+
+def get_pending_deletion(user_id: str) -> PendingDeletion | None:
+    with _pending_lock:
+        return _pending_deletions.get(user_id)
+
+
+def is_delete_confirmation(message: str) -> bool:
+    """Deterministic gate: only an exact trimmed lowercase 'y' confirms."""
+    return message.strip() == "y"
+
+
+def delete_report_for_user(report_id: uuid.UUID, user_id: str) -> dict:
+    """Delete DB row + file. Caller must have already verified confirmation."""
+    with _get_sync_session() as session:
+        row = session.scalar(
+            select(Report).where(Report.id == report_id, Report.user_id == user_id)
+        )
+        if row is None:
+            raise PermissionError("report not found or not owned by this user")
+        title = row.title
+        path = Path(row.file_path)
+        session.execute(
+            delete(Report).where(Report.id == report_id, Report.user_id == user_id)
+        )
+        session.commit()
+    if path.is_file():
+        path.unlink()
+    return {"report_id": str(report_id), "title": title, "deleted": True}
+
+
+def try_resolve_pending_deletion(user_id: str, message: str) -> dict | None:
+    """If a deletion is pending, handle confirm/cancel in application code.
+
+    Returns a result dict when the turn was fully handled (no agent needed),
+    or None when the agent should run normally.
+    """
+    pending = get_pending_deletion(user_id)
+    if pending is None:
+        return None
+
+    if is_delete_confirmation(message):
+        clear_pending_deletion(user_id)
+        try:
+            deleted = delete_report_for_user(pending.report_id, user_id)
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "handled": True,
+                "outcome": "error",
+                "message": f"Could not delete report: {exc}",
+            }
+        return {
+            "handled": True,
+            "outcome": "deleted",
+            "message": (
+                f"Deleted report “{deleted['title']}” "
+                f"({deleted['report_id']})."
+            ),
+        }
+
+    # Any non-y reply while pending cancels; agent may still handle the message.
+    clear_pending_deletion(user_id)
+    return {
+        "handled": False,
+        "outcome": "cancelled",
+        "message": (
+            f"Cancelled pending deletion of “{pending.title}” "
+            f"({pending.report_id})."
+        ),
+    }

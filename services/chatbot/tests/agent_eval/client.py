@@ -76,6 +76,7 @@ class ChatbotAgent:
         question: str,
         *,
         auth_preset: str = "admin",
+        conversation_id: str | None = None,
     ) -> AgentRun:
         if auth_preset not in PRESET_USERS:
             raise ValueError(f"unknown auth_preset: {auth_preset}")
@@ -84,16 +85,20 @@ class ChatbotAgent:
         )
         user_id = str(PRESET_USERS[auth_preset]["sub"])
         started = time.perf_counter()
-        run = AgentRun(case_id=case_id)
+        run = AgentRun(case_id=case_id, conversation_id=conversation_id or "")
         answer_parts: list[str] = []
         thinking_parts: list[str] = []
+
+        body: dict[str, Any] = {"user_id": user_id, "message": question}
+        if conversation_id:
+            body["conversation_id"] = conversation_id
 
         try:
             with httpx.Client(timeout=self.timeout_s) as client:
                 with client.stream(
                     "POST",
                     f"{self.base_url}/chat",
-                    json={"user_id": user_id, "message": question},
+                    json=body,
                     headers={
                         "accept": "text/event-stream",
                         "authorization": f"Bearer {access_token}",
@@ -150,3 +155,41 @@ class ChatbotAgent:
         run.thinking = "".join(thinking_parts).strip()
         run.latency_s = time.perf_counter() - started
         return run
+
+    def invoke_case(
+        self,
+        case_id: int,
+        question: str,
+        *,
+        auth_preset: str = "admin",
+        turns: list[str] | None = None,
+    ) -> AgentRun:
+        """Run one or more turns on a single conversation; merge answers/tools."""
+        script = list(turns) if turns else [question]
+        conversation_id: str | None = None
+        merged = AgentRun(case_id=case_id)
+        answers: list[str] = []
+        total_latency = 0.0
+
+        for i, turn in enumerate(script):
+            step = self.invoke(
+                case_id,
+                turn,
+                auth_preset=auth_preset,
+                conversation_id=conversation_id,
+            )
+            conversation_id = step.conversation_id or conversation_id
+            merged.conversation_id = conversation_id or ""
+            merged.tool_calls.extend(step.tool_calls)
+            total_latency += step.latency_s
+            if step.answer:
+                answers.append(f"[turn {i + 1}] {step.answer}")
+            if step.error and not step.answer:
+                merged.error = step.error
+                merged.latency_s = total_latency
+                merged.answer = "\n\n".join(answers)
+                return merged
+
+        merged.answer = "\n\n".join(answers)
+        merged.latency_s = total_latency
+        return merged

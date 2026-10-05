@@ -46,6 +46,8 @@ async def run_suite(
         flag = "" if case.runnable else " [pending/skip]"
         log(f"  plan case {case.id} [{case.category}] auth={case.auth_preset}{flag} — {n_q} criteria")
         log(f"    Q: {case.question}")
+        if case.turns:
+            log(f"    turns: {len(case.turns)}")
 
     async def judge_one(
         case: Case, run, q: EvalQuestion
@@ -93,10 +95,11 @@ async def run_suite(
         async with case_sem:
             log(f"case {case.id}: invoking agent as preset={case.auth_preset}…")
             run = await asyncio.to_thread(
-                agent.invoke,
+                agent.invoke_case,
                 case.id,
                 case.question,
                 auth_preset=case.auth_preset,
+                turns=case.turns or None,
             )
             tools = len(run.tool_calls)
             preview = (run.answer or run.error or "").replace("\n", " ")

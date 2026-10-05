@@ -47,6 +47,9 @@ Cases **8–10** (`assessment`) mirror the OpsFleet brief examples: CA vs TX spe
 churn-like cancelled/return spike, and a Q1 report with Q2 actions. Filter with
 `EVAL_CASES=assessment` or `EVAL_CASES=8-10`.
 
+Case **11** (`report_delete`) is multi-turn: create report → propose delete →
+confirm with exact `y`. Run with `EVAL_CASES=11` or `EVAL_CASES=report_delete`.
+
 ## Judge model
 
 Default judge is the same Gemini family as the agent (`JUDGE_MODEL` /

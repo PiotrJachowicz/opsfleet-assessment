@@ -15,7 +15,11 @@ from chatbot.config import get_settings
 from chatbot.db import Conversation, Message, MessageRole
 from chatbot.middleware.pii import PiiStreamSanitizer, sanitize_pii
 from chatbot.models import ChatRequest
-from chatbot.reports.store import reset_conversation_id, set_conversation_id
+from chatbot.reports.store import (
+    reset_conversation_id,
+    set_conversation_id,
+    try_resolve_pending_deletion,
+)
 
 
 def _iter_chunk_parts(content: Any) -> Iterator[tuple[str, str]]:
@@ -167,6 +171,24 @@ async def _stream_chat_turn_inner(
         "event": "meta",
         "data": json.dumps({"conversation_id": str(conversation.id)}),
     }
+
+    # Deterministic delete confirmation: only an exact "y" deletes, in app code.
+    pending_result = try_resolve_pending_deletion(request.user_id, safe_message)
+    if pending_result is not None and pending_result.get("handled"):
+        reply = sanitize_pii(str(pending_result["message"]))
+        await _persist_assistant(
+            session, conversation=conversation, content=reply
+        )
+        yield {"event": "token", "data": reply}
+        yield {
+            "event": "done",
+            "data": json.dumps({"conversation_id": str(conversation.id)}),
+        }
+        return
+    if pending_result is not None and pending_result.get("outcome") == "cancelled":
+        # Surface cancel notice, then continue so the new message can be handled.
+        cancel_note = sanitize_pii(str(pending_result["message"]))
+        yield {"event": "token", "data": cancel_note + "\n\n"}
 
     history_result = await session.execute(
         select(Message)

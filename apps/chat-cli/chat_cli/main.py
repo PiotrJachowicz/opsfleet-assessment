@@ -229,11 +229,6 @@ def main() -> None:
         print("Presets:")
         print(format_presets())
         print()
-        print(
-            "Assumption: production frontends send a JWT with brand scopes; "
-            "this CLI mints preset JWTs for the prototype."
-        )
-        print()
 
         while True:
             try:

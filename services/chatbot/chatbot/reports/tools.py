@@ -7,11 +7,7 @@ import json
 from langchain_core.tools import tool
 
 from chatbot.middleware.pii import sanitize_pii
-from chatbot.reports.store import (
-    create_report,
-    get_report_for_user,
-    list_reports_for_user,
-)
+from chatbot.reports import store as report_store
 
 
 @tool
@@ -24,7 +20,7 @@ def create_html_report(title: str, body_html: str) -> str:
     Use this when the user asks to create or save a report.
     """
     try:
-        result = create_report(title=title, body_html=body_html)
+        result = report_store.create_report(title=title, body_html=body_html)
     except Exception as exc:  # noqa: BLE001
         return sanitize_pii(f"Failed to create report: {exc}")
     return sanitize_pii(
@@ -38,7 +34,7 @@ def create_html_report(title: str, body_html: str) -> str:
 def list_reports() -> str:
     """List HTML reports owned by the current authenticated user (newest first)."""
     try:
-        rows = list_reports_for_user()
+        rows = report_store.list_reports_for_user()
     except Exception as exc:  # noqa: BLE001
         return sanitize_pii(f"Failed to list reports: {exc}")
     if not rows:
@@ -53,7 +49,28 @@ def get_report(report_id: str) -> str:
     Returns metadata and the full HTML so it can be shown or summarized.
     """
     try:
-        payload = get_report_for_user(report_id)
+        payload = report_store.get_report_for_user(report_id)
     except Exception as exc:  # noqa: BLE001
         return sanitize_pii(f"Failed to get report: {exc}")
     return sanitize_pii(json.dumps(payload, indent=2))
+
+
+@tool
+def propose_delete_report(report_id: str) -> str:
+    """Start deletion of one of the current user's reports (confirmation required).
+
+    Shows report details and stages a pending delete. The user must reply with
+    exactly `y` in a following message; the server deletes only then. There is
+    no tool that deletes immediately — do not claim a report was deleted until
+    the user confirms with `y`.
+    """
+    try:
+        payload = report_store.propose_delete_report(report_id)
+    except Exception as exc:  # noqa: BLE001
+        return sanitize_pii(f"Failed to propose delete: {exc}")
+    return sanitize_pii(
+        "Deletion staged — awaiting confirmation.\n"
+        + json.dumps(payload, indent=2)
+        + "\nTell the user the title/id/path and that they must reply with exactly "
+        "`y` to delete (anything else cancels). Do NOT say the report is deleted yet."
+    )

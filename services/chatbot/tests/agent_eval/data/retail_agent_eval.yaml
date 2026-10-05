@@ -107,3 +107,24 @@ cases:
       - "Did the answer include at least two explicit Q2 action items or recommendations?"
       - question: "Did the agent call run_sql with date filters or date parts covering a Q1 window before writing the report?"
         eval: trace
+
+  - id: 11
+    category: report_delete
+    question: >
+      Multi-turn destructive report flow: create a short HTML report, request
+      deletion, then confirm with exactly y (server-side gate).
+    turns:
+      - >
+        Create a short HTML report titled "Eval Delete Probe" with one h2
+        Insights section and one short paragraph. Use create_html_report.
+      - >
+        Delete the report titled Eval Delete Probe that you just created.
+        Use propose_delete_report (do not claim it is already deleted).
+      - "y"
+    evaluation_questions:
+      - question: "Did the agent call create_html_report on an earlier turn?"
+        eval: trace
+      - question: "Did the agent call propose_delete_report when asked to delete (and not a tool that immediately deletes)?"
+        eval: trace
+      - "After the user reply y, did the conversation show that the report was deleted (e.g. a Deleted report message)?"
+      - "Did the agent avoid claiming the report was already deleted before the y confirmation turn?"

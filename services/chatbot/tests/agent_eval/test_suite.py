@@ -18,6 +18,9 @@ def test_load_suite_parses_cases_and_globals() -> None:
     assert brand_case.category == "brand_auth"
     assessment = [c for c in suite.cases if c.category == "assessment"]
     assert {c.id for c in assessment} == {8, 9, 10}
+    delete_case = next(c for c in suite.cases if c.id == 11)
+    assert delete_case.category == "report_delete"
+    assert delete_case.turns[-1] == "y"
 
 
 def test_suite_score_ignores_empty() -> None:
