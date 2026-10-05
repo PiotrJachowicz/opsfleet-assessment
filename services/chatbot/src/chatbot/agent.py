@@ -7,7 +7,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from chatbot.config import Settings, get_settings
 from chatbot.llm import create_chat_model
-from chatbot.retries import build_model_retry_middleware
+from chatbot.middleware import build_model_retry_middleware
 from chatbot.integrations.bigquery import list_schema, run_sql
 
 SYSTEM_PROMPT = """
