@@ -43,7 +43,6 @@ Postgres is published on host port **5433** (to avoid clashing with a local 5432
 
 ```bash
 curl http://127.0.0.1:8000/health
-curl -N http://127.0.0.1:8000/hello
 ```
 
 ## CLI

@@ -1,4 +1,3 @@
-import asyncio
 import json
 
 from pydantic import ValidationError
@@ -15,17 +14,6 @@ from chatbot.schemas import ChatRequest
 
 async def health(_: Request) -> JSONResponse:
     return JSONResponse({"status": "ok"})
-
-
-async def hello(request: Request) -> EventSourceResponse:
-    async def event_generator():
-        for i in range(1, 4):
-            if await request.is_disconnected():
-                break
-            yield {"event": "message", "data": f"Hello {i}"}
-            await asyncio.sleep(0.5)
-
-    return EventSourceResponse(event_generator())
 
 
 async def chat(request: Request) -> JSONResponse | EventSourceResponse:
@@ -65,7 +53,6 @@ async def chat(request: Request) -> JSONResponse | EventSourceResponse:
 app = Starlette(
     routes=[
         Route("/health", health, methods=["GET"]),
-        Route("/hello", hello, methods=["GET"]),
         Route("/chat", chat, methods=["POST"]),
     ]
 )
