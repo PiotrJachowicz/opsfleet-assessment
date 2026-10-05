@@ -312,8 +312,6 @@ The eval set should be extended whenever a new use case is identified and implem
 
 For algorithmic parts of the system, unit tests and end to end tests will be implemented.
 
-
-
 ---
 
 ## 8. Extensibility
@@ -346,3 +344,7 @@ The main trade-offs to expand here are managed Cloud Run vs Kubernetes, Flash-de
 | Extensibility (new tools / sources) | 7 |
 | Dataset: `thelook_ecommerce` four tables | 1, 3.1, 5 |
 | Requirement coverage / open items | 10 |
+
+
+
+TODO: Compaction
