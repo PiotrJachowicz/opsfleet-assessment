@@ -9,6 +9,7 @@ from google.oauth2 import service_account
 
 from chatbot.config import Settings, get_settings
 from chatbot.integrations.bigquery.sql_guard import validate_readonly_sql
+from chatbot.middleware.pii import sanitize_pii, sanitize_rows
 
 
 @lru_cache
@@ -50,4 +51,5 @@ def run_query(sql: str, settings: Settings | None = None) -> dict[str, Any]:
 
 
 def rows_to_tool_text(payload: dict[str, Any]) -> str:
-    return json.dumps(payload, default=str, indent=2)[:20_000]
+    cleaned = sanitize_rows(payload)
+    return sanitize_pii(json.dumps(cleaned, default=str, indent=2)[:20_000])

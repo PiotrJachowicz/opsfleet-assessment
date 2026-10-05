@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from chatbot.agent import agent_config, get_analysis_agent
 from chatbot.config import get_settings
 from chatbot.db import Conversation, Message, MessageRole
+from chatbot.middleware.pii import PiiStreamSanitizer, sanitize_pii
 from chatbot.models import ChatRequest
 
 
@@ -100,6 +101,7 @@ async def _persist_assistant(
 
 def _preview(value: Any, limit: int = 400) -> str:
     text = value if isinstance(value, str) else json.dumps(value, default=str)
+    text = sanitize_pii(text)
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
@@ -130,11 +132,12 @@ async def stream_chat_turn(
         if conversation is None:
             raise LookupError("conversation not found")
 
+    safe_message = sanitize_pii(request.message)
     session.add(
         Message(
             conversation_id=conversation.id,
             role=MessageRole.user,
-            content=request.message,
+            content=safe_message,
         )
     )
     conversation.updated_at = datetime.now(UTC)
@@ -155,6 +158,8 @@ async def stream_chat_turn(
 
     agent = get_analysis_agent()
     final_answer_parts: list[str] = []
+    token_sanitizer = PiiStreamSanitizer()
+    thinking_sanitizer = PiiStreamSanitizer()
     try:
         async for event in agent.astream_events(
             {"messages": lc_messages},
@@ -169,12 +174,25 @@ async def stream_chat_turn(
                 if chunk is None:
                     continue
                 for event_name, text in _iter_chunk_parts(chunk.content):
-                    yield {"event": event_name, "data": text}
+                    if event_name == "thinking":
+                        safe = thinking_sanitizer.push(text)
+                    else:
+                        safe = token_sanitizer.push(text)
+                    if safe:
+                        yield {"event": event_name, "data": safe}
 
             elif kind == "on_chat_model_end":
+                for event_name, sanitizer in (
+                    ("thinking", thinking_sanitizer),
+                    ("token", token_sanitizer),
+                ):
+                    tail = sanitizer.finalize()
+                    if tail:
+                        yield {"event": event_name, "data": tail}
+
                 output = data.get("output")
                 if isinstance(output, AIMessage) and not output.tool_calls:
-                    text = _message_text(output.content)
+                    text = sanitize_pii(_message_text(output.content))
                     if text:
                         final_answer_parts.append(text)
 
@@ -205,17 +223,20 @@ async def stream_chat_turn(
         await _persist_assistant(
             session,
             conversation=conversation,
-            content="\n".join(final_answer_parts).strip(),
+            content=sanitize_pii("\n".join(final_answer_parts).strip()),
         )
         raise
     except Exception as exc:  # noqa: BLE001 - surface to SSE client
-        yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
+        yield {
+            "event": "error",
+            "data": json.dumps({"detail": sanitize_pii(str(exc))}),
+        }
         return
 
     await _persist_assistant(
         session,
         conversation=conversation,
-        content="\n".join(final_answer_parts).strip(),
+        content=sanitize_pii("\n".join(final_answer_parts).strip()),
     )
     yield {
         "event": "done",
