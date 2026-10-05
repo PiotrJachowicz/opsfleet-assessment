@@ -9,7 +9,7 @@ from starlette.routing import Route
 
 from chatbot.chat import get_owned_conversation, stream_chat_turn
 from chatbot.db import SessionLocal
-from chatbot.schemas import ChatRequest
+from chatbot.models import ChatRequest
 
 
 async def health(_: Request) -> JSONResponse:
