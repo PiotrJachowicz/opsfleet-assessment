@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from chatbot.agent import agent_config, get_analysis_agent
 from chatbot.config import get_settings
-from chatbot.models import Conversation, Message, MessageRole
+from chatbot.db import Conversation, Message, MessageRole
 from chatbot.schemas import ChatRequest
 
 
