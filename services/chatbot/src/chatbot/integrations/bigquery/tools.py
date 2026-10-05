@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
-from chatbot.bigquery import rows_to_tool_text, run_query
-from chatbot.schema_catalog import SCHEMA_TEXT
-from chatbot.sql_guard import SqlGuardError
+from chatbot.integrations.bigquery.client import rows_to_tool_text, run_query
+from chatbot.integrations.bigquery.schema_catalog import SCHEMA_TEXT
+from chatbot.integrations.bigquery.sql_guard import SqlGuardError
 
 
 @tool

@@ -8,7 +8,7 @@ from google.cloud import bigquery
 from google.oauth2 import service_account
 
 from chatbot.config import Settings, get_settings
-from chatbot.sql_guard import validate_readonly_sql
+from chatbot.integrations.bigquery.sql_guard import validate_readonly_sql
 
 
 @lru_cache
