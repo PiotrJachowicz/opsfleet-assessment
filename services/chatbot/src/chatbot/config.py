@@ -23,8 +23,6 @@ class Settings(BaseSettings):
     gemini_retry_max_delay: float = 60.0
     gemini_retry_backoff: float = 2.0
     gemini_timeout_seconds: float = 120.0
-    chat_base_url: str = "http://127.0.0.1:8000"
-    chat_user_id: str = "demo"
     gcp_project: str = "ops-test-piotr"
     google_application_credentials: str = ""
     bq_dataset: str = "bigquery-public-data.thelook_ecommerce"

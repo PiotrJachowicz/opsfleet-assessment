@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 
-from chatbot.config import get_settings
+from chat_cli.config import get_settings
 
 
 def _iter_sse(response: httpx.Response) -> Iterator[tuple[str, str]]:

@@ -13,6 +13,7 @@
 mise install
 mise trust
 cp services/chatbot/.env.example services/chatbot/.env
+cp apps/chat-cli/.env.example apps/chat-cli/.env
 ```
 
 Put your key in `services/chatbot/.env` as `GEMINI_API_KEY=...`.
@@ -50,6 +51,7 @@ curl http://127.0.0.1:8000/health
 With the server running (`mise run dev` in another terminal):
 
 ```bash
+mise run chat-cli-setup
 mise run chat
 ```
 
@@ -63,7 +65,9 @@ The agent can call BigQuery tools (`list_schema`, `run_sql`). The CLI shows:
 
 Try: `What were the top 5 product brands by revenue last year?`
 
-Optional env (in `services/chatbot/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`, `GEMINI_INCLUDE_THOUGHTS`, `GEMINI_THINKING_LEVEL`, `GEMINI_MAX_RETRIES`, `GEMINI_RETRY_*`, `GCP_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`.
+CLI env (in `apps/chat-cli/.env`): `CHAT_BASE_URL`, `CHAT_USER_ID`.
+
+Service env (in `services/chatbot/.env`): `GEMINI_*`, `GCP_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, etc.
 
 Transient Gemini `429` / `503` responses are retried with exponential backoff (and server `retryDelay` when present).
 

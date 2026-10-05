@@ -25,7 +25,13 @@ depends = ["infra:up", "migrate"]
 dir = "{{config_root}}/services/chatbot"
 run = "uv run uvicorn chatbot.app:app --host 127.0.0.1 --port 8000 --reload"
 
+[chat-cli-setup]
+description = "Install chat CLI dependencies"
+dir = "{{config_root}}/apps/chat-cli"
+run = "uv sync"
+
 [chat]
 description = "Interactive chatbot CLI (server must already be running)"
-dir = "{{config_root}}/services/chatbot"
-run = "uv run chatbot-cli"
+dir = "{{config_root}}/apps/chat-cli"
+depends = ["chat-cli-setup"]
+run = "uv run chat-cli"
