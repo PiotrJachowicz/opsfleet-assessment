@@ -43,6 +43,10 @@ Case **7** (`brand_auth`, `auth_preset: calvin`) checks that a Calvin Klein–sc
 JWT only surfaces that brand in answers/tool results. Run it with
 `EVAL_CASES=7` or `EVAL_CASES=brand_auth`.
 
+Cases **8–10** (`assessment`) mirror the OpsFleet brief examples: CA vs TX spend,
+churn-like cancelled/return spike, and a Q1 report with Q2 actions. Filter with
+`EVAL_CASES=assessment` or `EVAL_CASES=8-10`.
+
 ## Judge model
 
 Default judge is the same Gemini family as the agent (`JUDGE_MODEL` /

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import itertools
 import json
 import sys
+import threading
 from collections.abc import Iterator
 from typing import Any
 
@@ -9,6 +11,49 @@ import httpx
 
 from chat_cli.auth import PRESET_USERS, format_presets, mint_access_token
 from chat_cli.config import get_settings
+
+
+class _DotsSpinner:
+    """Animate '.', '..', '...' on one line until stopped."""
+
+    def __init__(self, interval_s: float = 0.4) -> None:
+        self._interval_s = interval_s
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self._lock = threading.Lock()
+        self._active = False
+
+    def start(self) -> None:
+        with self._lock:
+            if self._active:
+                return
+            self._active = True
+            self._stop.clear()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+
+    def stop(self) -> None:
+        with self._lock:
+            if not self._active:
+                return
+            self._active = False
+            self._stop.set()
+            thread = self._thread
+            self._thread = None
+        if thread is not None:
+            thread.join(timeout=1.0)
+        # Clear the spinner line.
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
+
+    def _run(self) -> None:
+        frames = itertools.cycle([".", "..", "..."])
+        while not self._stop.is_set():
+            frame = next(frames)
+            sys.stdout.write(f"\r{frame}\033[K")
+            sys.stdout.flush()
+            if self._stop.wait(self._interval_s):
+                break
 
 
 def _iter_sse(response: httpx.Response) -> Iterator[tuple[str, str]]:
@@ -57,84 +102,97 @@ def _send_chat(
     if conversation_id is not None:
         body["conversation_id"] = conversation_id
 
-    with client.stream(
-        "POST",
-        f"{base_url.rstrip('/')}/chat",
-        json=body,
-        headers={
-            "accept": "text/event-stream",
-            "authorization": f"Bearer {token}",
-        },
-    ) as response:
-        if response.status_code == 401:
-            detail = response.read().decode()
-            print(f"\nAuth error: {detail}", file=sys.stderr)
-            return conversation_id
-        if response.status_code == 404:
-            detail = response.read().decode()
-            print(f"\nError: conversation not found ({detail})", file=sys.stderr)
-            return conversation_id
-        if response.status_code >= 400:
-            detail = response.read().decode()
-            print(f"\nError: HTTP {response.status_code}: {detail}", file=sys.stderr)
-            return conversation_id
+    spinner = _DotsSpinner()
+    spinner.start()
+    try:
+        with client.stream(
+            "POST",
+            f"{base_url.rstrip('/')}/chat",
+            json=body,
+            headers={
+                "accept": "text/event-stream",
+                "authorization": f"Bearer {token}",
+            },
+        ) as response:
+            if response.status_code == 401:
+                spinner.stop()
+                detail = response.read().decode()
+                print(f"Auth error: {detail}", file=sys.stderr)
+                return conversation_id
+            if response.status_code == 404:
+                spinner.stop()
+                detail = response.read().decode()
+                print(f"Error: conversation not found ({detail})", file=sys.stderr)
+                return conversation_id
+            if response.status_code >= 400:
+                spinner.stop()
+                detail = response.read().decode()
+                print(f"Error: HTTP {response.status_code}: {detail}", file=sys.stderr)
+                return conversation_id
 
-        current_section: str | None = None
-        for event, data in _iter_sse(response):
-            if event == "meta":
-                try:
-                    conversation_id = json.loads(data)["conversation_id"]
-                except (json.JSONDecodeError, KeyError, TypeError):
-                    pass
-            elif event == "thinking":
-                if current_section != "thinking":
+            current_section: str | None = None
+            for event, data in _iter_sse(response):
+                if event == "meta":
+                    try:
+                        conversation_id = json.loads(data)["conversation_id"]
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        pass
+                    continue
+
+                # First visible event ends the waiting spinner.
+                spinner.stop()
+
+                if event == "thinking":
+                    if current_section != "thinking":
+                        if current_section is not None:
+                            print()
+                        print("Thinking> ", end="", flush=True)
+                        current_section = "thinking"
+                    print(data, end="", flush=True)
+                elif event == "token":
+                    if current_section != "token":
+                        if current_section is not None:
+                            print()
+                        print("Assistant> ", end="", flush=True)
+                        current_section = "token"
+                    print(data, end="", flush=True)
+                elif event == "tool":
                     if current_section is not None:
                         print()
-                    print("Thinking> ", end="", flush=True)
-                    current_section = "thinking"
-                print(data, end="", flush=True)
-            elif event == "token":
-                if current_section != "token":
-                    if current_section is not None:
-                        print()
-                    print("Assistant> ", end="", flush=True)
-                    current_section = "token"
-                print(data, end="", flush=True)
-            elif event == "tool":
-                if current_section is not None:
-                    print()
-                    current_section = None
-                try:
-                    payload = json.loads(data)
-                except json.JSONDecodeError:
-                    print(f"Tool> {data}", flush=True)
-                else:
-                    name = payload.get("name", "tool")
-                    status = payload.get("status", "")
-                    if status == "start":
-                        detail = payload.get("input") or ""
-                        print(f"Tool> {name} start {detail}", flush=True)
+                        current_section = None
+                    try:
+                        payload = json.loads(data)
+                    except json.JSONDecodeError:
+                        print(f"Tool> {data}", flush=True)
                     else:
-                        detail = payload.get("output_preview") or ""
-                        print(f"Tool> {name} end {detail}", flush=True)
-            elif event == "error":
-                try:
-                    detail = json.loads(data).get("detail", data)
-                except json.JSONDecodeError:
-                    detail = data
-                if current_section is not None:
-                    print()
-                print(f"Error: {detail}", file=sys.stderr)
-                current_section = None
-            elif event == "done":
-                try:
-                    conversation_id = json.loads(data).get(
-                        "conversation_id", conversation_id
-                    )
-                except json.JSONDecodeError:
-                    pass
-        if current_section is not None:
-            print()
+                        name = payload.get("name", "tool")
+                        status = payload.get("status", "")
+                        if status == "start":
+                            detail = payload.get("input") or ""
+                            print(f"Tool> {name} start {detail}", flush=True)
+                        else:
+                            detail = payload.get("output_preview") or ""
+                            print(f"Tool> {name} end {detail}", flush=True)
+                elif event == "error":
+                    try:
+                        detail = json.loads(data).get("detail", data)
+                    except json.JSONDecodeError:
+                        detail = data
+                    if current_section is not None:
+                        print()
+                    print(f"Error: {detail}", file=sys.stderr)
+                    current_section = None
+                elif event == "done":
+                    try:
+                        conversation_id = json.loads(data).get(
+                            "conversation_id", conversation_id
+                        )
+                    except json.JSONDecodeError:
+                        pass
+            if current_section is not None:
+                print()
+    finally:
+        spinner.stop()
 
     return conversation_id
 
@@ -207,7 +265,7 @@ def main() -> None:
                 )
                 user_id = PRESET_USERS[preset_key]["sub"]
                 conversation_id = None
-                print(f"Switched identity; new conversation.")
+                print("Switched identity; new conversation.")
                 _print_identity(preset_key)
                 continue
 

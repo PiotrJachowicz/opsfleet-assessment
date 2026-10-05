@@ -69,3 +69,41 @@ cases:
       - "Did the answer only report Calvin Klein as a brand (no other brand names such as Allegra K, Levi's, or Carhartt)?"
       - question: "Did run_sql tool output / SQL results only include Calvin Klein (or brand-scoped filters), not other brands' revenue rows?"
         eval: trace
+
+  # Assessment brief use cases (OpsFleet / executive analysis scenarios).
+  - id: 8
+    category: assessment
+    question: >
+      Why are users in California underspending? And how does their spend compare
+      to users in Texas? Use average or total order/item spend and give a short
+      executive explanation with numbers.
+    evaluation_questions:
+      - "Did the answer compare California and Texas with concrete spend figures (averages and/or totals)?"
+      - "Did the answer give a short executive-style explanation of why one state looks lower or higher (not only raw numbers)?"
+      - question: "Did the agent query users joined to orders/order_items (or equivalent) filtered or grouped by state, rather than inventing state spend?"
+        eval: trace
+
+  - id: 9
+    category: assessment
+    question: >
+      Why did our churn-like loss rate spike recently? Using cancelled and/or
+      returned orders as a proxy for churn, compare last calendar month to the
+      prior month and explain the change for an executive.
+    evaluation_questions:
+      - "Did the answer compare two time periods with numeric cancelled and/or return rates or counts?"
+      - "Did the answer offer a concise executive explanation of the change (not only a table of counts)?"
+      - question: "Did the agent run SQL over orders and/or order_items using status/returned_at/created_at (or similar) for the period comparison?"
+        eval: trace
+
+  - id: 10
+    category: assessment
+    question: >
+      Create a report for Q1 (January–March of the latest year with data)
+      including key sales insights and prioritized action items for Q2.
+      Structure it as an executive briefing.
+    evaluation_questions:
+      - "Did the answer read like an executive report (insights section plus Q2 action items), not only a single metric?"
+      - "Did the Q1 insights cite concrete metrics from the data (e.g. revenue, orders, top categories/brands, or trends)?"
+      - "Did the answer include at least two explicit Q2 action items or recommendations?"
+      - question: "Did the agent call run_sql with date filters or date parts covering a Q1 window before writing the report?"
+        eval: trace

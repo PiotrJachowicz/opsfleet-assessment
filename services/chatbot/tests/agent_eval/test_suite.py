@@ -16,6 +16,8 @@ def test_load_suite_parses_cases_and_globals() -> None:
     brand_case = next(c for c in suite.cases if c.id == 7)
     assert brand_case.auth_preset == "calvin"
     assert brand_case.category == "brand_auth"
+    assessment = [c for c in suite.cases if c.category == "assessment"]
+    assert {c.id for c in assessment} == {8, 9, 10}
 
 
 def test_suite_score_ignores_empty() -> None:
