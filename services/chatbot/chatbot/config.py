@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     bq_max_bytes_billed: int = 1_000_000_000
     bq_timeout_seconds: float = 60.0
     agent_recursion_limit: int = 25
+    jwt_secret: str = "dev-jwt-secret-change-me"
+    langsmith_tracing: bool = False
+    langsmith_api_key: str = ""
+    langsmith_project: str = "opsfleet-chatbot"
+    langsmith_endpoint: str = ""
+    langsmith_dataset: str = "opsfleet-retail-agent-eval"
 
 
 @lru_cache

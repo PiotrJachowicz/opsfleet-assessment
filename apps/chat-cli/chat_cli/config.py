@@ -11,7 +11,8 @@ class Settings(BaseSettings):
     )
 
     chat_base_url: str = "http://127.0.0.1:8000"
-    chat_user_id: str = "demo"
+    chat_user_preset: str = "admin"
+    jwt_secret: str = "dev-jwt-secret-change-me"
 
 
 @lru_cache

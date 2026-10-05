@@ -9,6 +9,8 @@ from google.oauth2 import service_account
 
 from chatbot.config import Settings, get_settings
 from chatbot.integrations.bigquery.sql_guard import validate_readonly_sql
+from chatbot.integrations.bigquery.brand_scope import apply_brand_scope
+from chatbot.auth import get_auth_context
 from chatbot.middleware.pii import sanitize_pii, sanitize_rows
 
 
@@ -26,6 +28,7 @@ def get_bq_client() -> bigquery.Client:
 def run_query(sql: str, settings: Settings | None = None) -> dict[str, Any]:
     settings = settings or get_settings()
     safe_sql = validate_readonly_sql(sql)
+    safe_sql = apply_brand_scope(safe_sql, get_auth_context())
     client = get_bq_client()
 
     job_config = bigquery.QueryJobConfig(

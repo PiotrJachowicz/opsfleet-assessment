@@ -10,6 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from chatbot.agent import agent_config, get_analysis_agent
+from chatbot.auth import AuthContext, reset_auth_context, set_auth_context
 from chatbot.config import get_settings
 from chatbot.db import Conversation, Message, MessageRole
 from chatbot.middleware.pii import PiiStreamSanitizer, sanitize_pii
@@ -110,8 +111,22 @@ def _preview(value: Any, limit: int = 400) -> str:
 async def stream_chat_turn(
     session: AsyncSession,
     request: ChatRequest,
+    auth: AuthContext,
 ) -> AsyncIterator[dict]:
     settings = get_settings()
+    token = set_auth_context(auth)
+    try:
+        async for event in _stream_chat_turn_inner(session, request, settings):
+            yield event
+    finally:
+        reset_auth_context(token)
+
+
+async def _stream_chat_turn_inner(
+    session: AsyncSession,
+    request: ChatRequest,
+    settings,
+) -> AsyncIterator[dict]:
     if not settings.gemini_api_key:
         yield {
             "event": "error",

@@ -1,7 +1,7 @@
 """Reusable PII scrubbing for email and phone.
 
 Call from chat, tools, traces (e.g. LangSmith), or any other boundary.
-Keep detectors here so replacements stay consistent (`[EMAIL]`, `[PHONE]`).
+Keep detectors here so replacements stay consistent (`EMAIL MASKED`, `PHONE MASKED`).
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
-EMAIL_TOKEN = "[EMAIL]"
-PHONE_TOKEN = "[PHONE]"
+EMAIL_TOKEN = "EMAIL MASKED"
+PHONE_TOKEN = "PHONE MASKED"
 
 # Practical email matcher; not RFC-perfect, good enough for scrubbing.
 EMAIL_RE = re.compile(

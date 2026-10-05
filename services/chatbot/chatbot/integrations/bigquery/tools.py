@@ -2,16 +2,29 @@ from __future__ import annotations
 
 from langchain_core.tools import tool
 
+from chatbot.auth import AuthContext, get_auth_context
 from chatbot.integrations.bigquery.client import rows_to_tool_text, run_query
 from chatbot.integrations.bigquery.schema_catalog import SCHEMA_TEXT
 from chatbot.integrations.bigquery.sql_guard import SqlGuardError
 from chatbot.middleware.pii import sanitize_pii
 
 
+def _schema_for_auth(auth: AuthContext | None) -> str:
+    if auth is None or auth.is_admin:
+        return SCHEMA_TEXT
+    brands = ", ".join(auth.allowed_brands)
+    return (
+        SCHEMA_TEXT
+        + "\n\nAccess note: this user may only analyze brands: "
+        + brands
+        + ". The service enforces this in SQL automatically."
+    )
+
+
 @tool
 def list_schema() -> str:
     """List the allowed BigQuery tables and columns for retail analysis."""
-    return SCHEMA_TEXT
+    return _schema_for_auth(get_auth_context())
 
 
 @tool

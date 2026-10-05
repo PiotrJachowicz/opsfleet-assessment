@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from chat_cli.auth import PRESET_USERS, format_presets, mint_access_token
 from chat_cli.config import get_settings
 
 
@@ -47,6 +48,7 @@ def _send_chat(
     client: httpx.Client,
     *,
     base_url: str,
+    token: str,
     user_id: str,
     message: str,
     conversation_id: str | None,
@@ -59,8 +61,15 @@ def _send_chat(
         "POST",
         f"{base_url.rstrip('/')}/chat",
         json=body,
-        headers={"accept": "text/event-stream"},
+        headers={
+            "accept": "text/event-stream",
+            "authorization": f"Bearer {token}",
+        },
     ) as response:
+        if response.status_code == 401:
+            detail = response.read().decode()
+            print(f"\nAuth error: {detail}", file=sys.stderr)
+            return conversation_id
         if response.status_code == 404:
             detail = response.read().decode()
             print(f"\nError: conversation not found ({detail})", file=sys.stderr)
@@ -130,19 +139,42 @@ def _send_chat(
     return conversation_id
 
 
+def _print_identity(preset_key: str) -> None:
+    profile = PRESET_USERS[preset_key]
+    brands = ", ".join(profile["brands"])
+    print(f"User:   {preset_key} ({profile['name']})  brands=[{brands}]")
+
+
 def main() -> None:
     settings = get_settings()
     base_url = settings.chat_base_url
-    user_id = settings.chat_user_id
+    preset_key = settings.chat_user_preset
+    if preset_key not in PRESET_USERS:
+        print(
+            f"Unknown CHAT_USER_PRESET={preset_key!r}. Choose one of: "
+            + ", ".join(PRESET_USERS),
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+
     conversation_id: str | None = None
+    token = mint_access_token(preset_key=preset_key, secret=settings.jwt_secret)
+    user_id = PRESET_USERS[preset_key]["sub"]
 
     with httpx.Client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
         _check_health(client, base_url)
 
         print("Chatbot CLI")
         print(f"Server: {base_url}")
-        print(f"User:   {user_id}")
-        print("Commands: /new  /quit")
+        _print_identity(preset_key)
+        print("Commands: /new  /user <admin|calvin|levis>  /whoami  /quit")
+        print("Presets:")
+        print(format_presets())
+        print()
+        print(
+            "Assumption: production frontends send a JWT with brand scopes; "
+            "this CLI mints preset JWTs for the prototype."
+        )
         print()
 
         while True:
@@ -161,10 +193,28 @@ def main() -> None:
                 conversation_id = None
                 print("Started a new conversation.")
                 continue
+            if user_input == "/whoami":
+                _print_identity(preset_key)
+                continue
+            if user_input.startswith("/user"):
+                parts = user_input.split(maxsplit=1)
+                if len(parts) != 2 or parts[1] not in PRESET_USERS:
+                    print("Usage: /user <admin|calvin|levis>")
+                    continue
+                preset_key = parts[1]
+                token = mint_access_token(
+                    preset_key=preset_key, secret=settings.jwt_secret
+                )
+                user_id = PRESET_USERS[preset_key]["sub"]
+                conversation_id = None
+                print(f"Switched identity; new conversation.")
+                _print_identity(preset_key)
+                continue
 
             conversation_id = _send_chat(
                 client,
                 base_url=base_url,
+                token=token,
                 user_id=user_id,
                 message=user_input,
                 conversation_id=conversation_id,

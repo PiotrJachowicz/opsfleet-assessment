@@ -35,3 +35,15 @@ description = "Interactive chatbot CLI (server must already be running)"
 dir = "{{config_root}}/apps/chat-cli"
 depends = ["chat-cli-setup"]
 run = "uv run chat-cli"
+
+[eval]
+description = "Run full LLM-as-judge agent eval against a live chatbot (server must be up)"
+dir = "{{config_root}}/services/chatbot"
+depends = ["chatbot-setup"]
+run = "uv run python tests/agent_eval/cli.py"
+
+["eval:demo"]
+description = "Run a single demo eval case (tool_use / list_schema) to avoid rate limits"
+dir = "{{config_root}}/services/chatbot"
+depends = ["chatbot-setup"]
+run = "uv run python tests/agent_eval/cli.py --demo"

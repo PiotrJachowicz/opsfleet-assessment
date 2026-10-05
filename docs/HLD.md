@@ -310,7 +310,11 @@ Evaluation should be a part of the development flow as well as a periodical gate
 
 The eval set should be extended whenever a new use case is identified and implemented, and should be refined and extended during the QA phase before deploying the system to production.
 
+**Judge model family:** Prefer a **cross-family** judge relative to the agent model (e.g. ChatGPT judging a Gemini agent; Claude is also acceptable). Different model families have different strengths, so scoring with another family makes confirmation bias — the judge rubber-stamping work that “looks like” its own style — less plausible. The prototype may default the judge to Gemini only because the engagement constrains the stack to Gemini; that is a prototype concession, not the recommended production posture.
+
 For algorithmic parts of the system, unit tests and end to end tests will be implemented.
+
+Live agent traces go to managed LangSmith. Trace payloads must remain PII-safe (email and phone scrubbed) before export.
 
 ---
 
