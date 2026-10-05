@@ -87,6 +87,15 @@ must match between `apps/chat-cli/.env` and `services/chatbot/.env`):
 Brand filters are injected deterministically into `products` and `order_items`
 queries before BigQuery runs.
 
+## Saved reports
+
+The agent can create styled HTML report artifacts via tools:
+
+- `create_html_report` — writes `output/reports/*.html` and a per-user DB row
+- `list_reports` / `get_report` — scoped to the authenticated JWT user only
+
+`output/` is gitignored. Run migrations after pull (`mise run migrate`).
+
 CLI env: `CHAT_BASE_URL`, `CHAT_USER_PRESET`, `JWT_SECRET`.
 
 Service env: `GEMINI_*`, `JWT_SECRET`, `GCP_PROJECT`, `GOOGLE_APPLICATION_CREDENTIALS`, optional `LANGSMITH_*`, etc.

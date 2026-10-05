@@ -12,6 +12,12 @@ Claims: `sub` (user id), `brands` (`["*"]` for admin, or concrete brand names).
 Brand scope is enforced in SQL for `products` and `order_items` (see
 `chatbot/integrations/bigquery/brand_scope.py`). Prompt-only trust is not used.
 
+## Reports
+
+HTML reports are stored under `REPORTS_DIR` (default `output/reports`) with rows
+in the `reports` table. Tools: `create_html_report`, `list_reports`, `get_report`
+(always filtered by the JWT `sub`).
+
 ## LangSmith (optional)
 
 No LangSmith config is required for local chat. Leave these unset (or

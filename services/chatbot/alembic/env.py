@@ -7,7 +7,7 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from chatbot.config import get_settings
-from chatbot.db import Base
+from chatbot.db import Base  # noqa: F401 — Report is on Base.metadata via models
 
 config = context.config
 if config.config_file_name is not None:

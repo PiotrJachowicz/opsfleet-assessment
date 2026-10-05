@@ -15,6 +15,7 @@ from chatbot.config import get_settings
 from chatbot.db import Conversation, Message, MessageRole
 from chatbot.middleware.pii import PiiStreamSanitizer, sanitize_pii
 from chatbot.models import ChatRequest
+from chatbot.reports.store import reset_conversation_id, set_conversation_id
 
 
 def _iter_chunk_parts(content: Any) -> Iterator[tuple[str, str]]:
@@ -114,12 +115,14 @@ async def stream_chat_turn(
     auth: AuthContext,
 ) -> AsyncIterator[dict]:
     settings = get_settings()
-    token = set_auth_context(auth)
+    auth_token = set_auth_context(auth)
+    convo_token = set_conversation_id(None)
     try:
         async for event in _stream_chat_turn_inner(session, request, settings):
             yield event
     finally:
-        reset_auth_context(token)
+        reset_conversation_id(convo_token)
+        reset_auth_context(auth_token)
 
 
 async def _stream_chat_turn_inner(
@@ -146,6 +149,8 @@ async def _stream_chat_turn_inner(
         )
         if conversation is None:
             raise LookupError("conversation not found")
+
+    set_conversation_id(conversation.id)
 
     safe_message = sanitize_pii(request.message)
     session.add(

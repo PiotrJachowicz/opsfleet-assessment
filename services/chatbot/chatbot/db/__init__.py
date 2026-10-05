@@ -1,4 +1,4 @@
-from chatbot.db.models import Base, Conversation, Message, MessageRole
+from chatbot.db.models import Base, Conversation, Message, MessageRole, Report
 from chatbot.db.session import SessionLocal, engine, get_session
 
 __all__ = [
@@ -6,6 +6,7 @@ __all__ = [
     "Conversation",
     "Message",
     "MessageRole",
+    "Report",
     "SessionLocal",
     "engine",
     "get_session",

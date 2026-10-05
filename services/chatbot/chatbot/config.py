@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     bq_timeout_seconds: float = 60.0
     agent_recursion_limit: int = 25
     jwt_secret: str = "dev-jwt-secret-change-me"
+    reports_dir: str = "output/reports"
     langsmith_tracing: bool = False
     langsmith_api_key: str = ""
     langsmith_project: str = "opsfleet-chatbot"
