@@ -22,6 +22,6 @@ Set `CHAT_USER_PRESET` / `JWT_SECRET` in `.env` (secret must match the service).
 
 In the REPL: `/user calvin`, `/whoami`, `/new`.
 
-Production frontends would send the JWT; the CLI only mints presets for the
-prototype. Allowed brands are read from the JWT claim (no DB entitlement mapping
-in the prototype — see root `readme.md` / HLD for the production model).
+Production frontends send the client's identity JWT; the CLI only mints presets.
+Allowed brands are read from the JWT `brands` claim in both cases (HLD: no DB
+entitlement mapping; see root `readme.md`).

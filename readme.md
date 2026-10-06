@@ -74,10 +74,10 @@ Try: `What were the top 5 product brands by revenue last year?`
 Brand/product access is enforced in SQL (not only in the prompt): filters are
 injected into `products` and `order_items` queries before BigQuery runs.
 
-**Prototype simplification:** allowed brands are taken from the JWT `brands`
-claim only. There is **no** user→entitlement mapping lookup in Postgres. The CLI
-mints HS256 JWTs for three presets (shared `JWT_SECRET` must match between
-`apps/chat-cli/.env` and `services/chatbot/.env`):
+Allowed brands come from the JWT `brands` claim — **the same shape as the HLD**.
+There is no user→brand lookup in Postgres. A richer mapping is an HLD future
+consideration. The CLI mints HS256 JWTs for three presets (shared `JWT_SECRET`
+must match between `apps/chat-cli/.env` and `services/chatbot/.env`):
 
 | Preset | Scopes |
 |--------|--------|
@@ -85,10 +85,8 @@ mints HS256 JWTs for three presets (shared `JWT_SECRET` must match between
 | `calvin` | `Calvin Klein` only |
 | `levis` | `Levi's` only |
 
-**Production (HLD):** authenticate via JWT, then resolve the user's product
-entitlements from a mapping in PostgreSQL and apply that set in the same
-deterministic SQL rewriter. The prototype skips the DB mapping step so local
-demo presets stay simple.
+The HLD uses the client's identity JWT with the same `brands` claim. The
+prototype only differs in who mints the token (CLI presets vs the client's IdP).
 
 ## Saved reports
 
@@ -126,8 +124,7 @@ at `services/chatbot/output/logs/chatbot.log` (configurable via `LOGS_DIR` /
 `LOG_FILE_NAME`). That path is for local debugging only.
 
 In production (see `docs/HLD.md`), the same log calls target **GCP Cloud Logging**
-by swapping the sink (Cloud Run structured stdout or the Cloud Logging handler)—
-no application call-site changes.
+via the **Cloud Logging handler** — no application call-site changes.
 
 CLI env: `CHAT_BASE_URL`, `CHAT_USER_PRESET`, `JWT_SECRET`.
 
@@ -172,7 +169,7 @@ This runs the YAML suite in `services/chatbot/tests/agent_eval/`, writes
 Without LangSmith, evals still run and write the local JSON report. See
 `services/chatbot/tests/agent_eval/README.md`.
 
-**Judge note:** the prototype defaults the judge to Gemini (same key as the agent) because the assessment stack is Gemini-oriented. Prefer a **different family** in production (ChatGPT first; Claude also fine) so the judge is less likely to confirm its own style of answers.
+**Judge note:** the prototype defaults the judge to Gemini (same key as the agent) because the assessment stack is Gemini-oriented. The HLD judge is **ChatGPT 5.1 sol** (different family from the Gemini agent).
 
 ## Chat (SSE / curl)
 

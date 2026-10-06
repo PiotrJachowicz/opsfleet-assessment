@@ -24,7 +24,7 @@ Use `mise` + `uv`. Postgres is on host **5433**. Do not invent a second package 
 | Topic | Prototype | Production (HLD) |
 | --- | --- | --- |
 | Analytics | BigQuery `thelook_ecommerce` | Client-provided **read-only SQL** store |
-| Entitlements | JWT `brands` claim only | Postgres user→brand mapping |
+| Entitlements | JWT `brands` claim (CLI presets) | JWT `brands` claim (client IdP); Postgres mapping is a future consideration |
 | Delete confirm | Chat `y` gate in app code | HITL UI + HTTP hard-delete; agent has no delete tool |
 | Logs | `output/logs` (gitignored) | Cloud Logging (same logger API) |
 | Ingress | Direct `/chat` | BFF only |

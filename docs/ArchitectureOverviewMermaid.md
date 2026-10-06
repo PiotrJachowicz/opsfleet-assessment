@@ -2,7 +2,7 @@
 flowchart TB
     subgraph Clients["1. Presentation"]
         UI["Web UI — Firebase App Hosting
-        Chat, Golden review, persona editing"]
+        Chat, persona editing"]
     end
 
     subgraph Edge["2. Edge — only public ingress"]
@@ -36,7 +36,7 @@ flowchart TB
         Read-only analytical facts")]
         Postgres[("Cloud SQL — PostgreSQL + pgvector
         Conversations, reports, preferences
-        Personas, entitlements, audit log
+        Personas, audit log
         Golden candidates and retrieval index")]
         Golden[("Initial Golden Dataset
         Data lake")]
@@ -55,7 +55,7 @@ flowchart TB
 
     UI -->|"HTTPS"| BFF
     BFF -->|"PII-checked SSE / JSON"| UI
-    BFF -->|"Route + forward identity"| Backend
+    BFF -->|"Route + forward identity and JWT scopes"| Backend
 
     Backend -->|"Approved entry ID / version"| PubSub
     PubSub -->|"Ingestion event"| Ingestion
@@ -71,7 +71,7 @@ flowchart TB
 
     Backend <-->|"Persist state
     Retrieve authorized Golden examples
-    Load entitlements"| Postgres
+    Load persona"| Postgres
 
     Golden -->|"Initial ingestion"| Ingestion
     Ingestion -->|"Store approved entries and vectors"| Postgres

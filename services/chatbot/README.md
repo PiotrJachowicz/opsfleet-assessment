@@ -12,9 +12,8 @@ Claims: `sub` (user id), `brands` (`["*"]` for admin, or concrete brand names).
 Brand scope is enforced in SQL for `products` and `order_items` (see
 `chatbot/integrations/bigquery/brand_scope.py`). Prompt-only trust is not used.
 
-**Prototype simplification:** scopes come from the JWT `brands` claim only — no
-Postgres entitlement-mapping lookup. Production (HLD) resolves entitlements from
-the DB after auth, then applies the same SQL rewriter.
+Scopes come from the JWT `brands` claim — same as the HLD. There is no Postgres
+entitlement mapping (that is an HLD future consideration).
 
 ## Reports
 
@@ -60,8 +59,7 @@ lives in `chatbot/observability/` alongside LangSmith tracing setup.
 
 - **Prototype sink:** rotating file at `LOGS_DIR` / `LOG_FILE_NAME` (default
   `output/logs/chatbot.log`), plus console via uvicorn. `output/` is gitignored.
-- **Production (HLD):** same logger API; swap the file sink for **GCP Cloud Logging**
-  (Cloud Run stdout / Cloud Logging handler). Call sites do not change.
+- **HLD:** same logger API; swap the file sink for the **Cloud Logging handler**. Call sites do not change.
 
 Useful fields logged: auth failures, chat turn start/done, tool start/end,
 delete confirm/cancel, turn errors. Message bodies are not written to logs.

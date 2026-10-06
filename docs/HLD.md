@@ -14,15 +14,11 @@ This system lets non-technical executives ask natural-language questions about s
 - Golden set retrieval,
 - Golden set candidates approval & addition,
 - persona editing for authorized non-developers (single instance with change history)
+- user-level style preferences (structured `{type, value}`, in-chat confirm)
 - and the operational controls needed to run the system.
 
-**Out of scope, but possible future additions:**
-- reusable report templates instead of stored snapshots,
-- multiple selectable personas
-
 **Assumptions:**
-- users are entitled to a defined set of products/brands, stored as a user-role-to-entitlement mapping in PostgreSQL (for example role `brand-calvin` → brands `["Calvin Klein"]`; admin → all brands)
-- additional entitlements might be introduced (not only brand-based)
+- the client's identity system issues a **JWT that already contains product/brand scopes** (for example `brands: ["Calvin Klein"]`, or `["*"]` for admin). The chatbot does not look up a user→brand mapping; it enforces those JWT scopes on every query.
 - analytical facts come from a **read-only SQL data store provided by the client** (schema and entitlements defined with the client; not tied to a specific warehouse SKU) 
 
 ---
@@ -31,7 +27,7 @@ This system lets non-technical executives ask natural-language questions about s
 
 ### 2.1 Analysis request
 
-An authenticated request resolves entitlements, loads conversation context, preferences, and the active persona, then decides whether the ask is in analytical or report-management scope.
+An authenticated request reads brand scopes from the JWT, loads conversation context and the active persona, then decides whether the ask is in analytical or report-management scope.
 
 The full agent turn is as follows:
 - retrieve a small set of approved Golden Set examples,
@@ -58,9 +54,9 @@ sequenceDiagram
 
     User->>UI: Question
     UI->>BFF: Authenticated request
-    BFF->>API: Route + forward identity
-    API->>PG: Entitlements, context, persona, preferences
-    API->>API: Scope check / clarify if needed
+    BFF->>API: Route + forward identity and JWT scopes
+    API->>PG: Context, persona
+    API->>API: Analysis-only check / clarify if needed
     API->>Emb: Embed contextualized question
     API->>PG: Retrieve approved Golden examples
     API->>LLM: Plan and draft SQL
@@ -92,7 +88,8 @@ sequenceDiagram
     UI->>BFF: Chat turn
     BFF->>Agent: Forward identity + message
     Agent->>PG: Resolve owned report IDs
-    Agent-->>UI: Tool result — approval UI (preview, no delete)
+    Agent-->>BFF: Tool result — approval UI (preview, no delete)
+    BFF-->>UI: Approval UI (preview, no delete)
     Note over Agent: Agent has no delete tool
     User->>UI: Explicit confirm in approval UI
     UI->>BFF: HTTP hard-delete (selected report IDs)
@@ -107,13 +104,13 @@ sequenceDiagram
 
 ### 2.3 Golden set and learning
 
-Part of the analysis loop is deciding whether a given analysis topic is a good candidate for the Golden Set - so a report generated based on a question, together with it's SQL Query. When a candidate has been identified, it is saved in the PostgreSQL database and a dedicated UI is being shown to the user, similarly to report deletion confirmation. Once a candidate has been confirmed, it is being added to the Pub/Sub and subsequently ran through embedding and saved in pgVector, and the candidate status is changed to accepted. Ingestion implementation must provide idempotency and retries.
+Part of the analysis loop is deciding whether a given analysis topic is a good candidate for the Golden Set - so a report generated based on a question, together with it's SQL Query. When a candidate has been identified, it is saved in the PostgreSQL database and confirmed **in chat** (same in-chat confirm as other HITL prompts; no separate Golden library screen). After confirm, the **chat backend** marks the candidate accepted and publishes it — unlike report hard-delete, which is a separate HTTP call. Once accepted, it is added to Pub/Sub, embedded, saved in pgVector, and the candidate status is changed to accepted. Ingestion implementation must provide idempotency and retries.
 
 The candidate record includes the Question/SQL/Report trio as well as metadata such as used model, user, provenance. 
 
-Once an entry has been retired (through a dedicated UI), it is dropped out of retrieval immediately, but history is kept.
+Retired entries are dropped out of retrieval immediately, but history is kept. Browsing, editing, and retiring Golden records through a dedicated admin/library UI is out of scope (see §10).
 
-At query time the Chatbot Service embeds a contextualized question with the same model and dimensions as the index, filters to approved and in-scope entries, retrieves a small budgeted set, and treats those examples as methodology — then generates fresh SQL under the same security controls. User preferences are stored with provenance and used as part of the context as well.
+At query time the Chatbot Service embeds a contextualized question with the same model and dimensions as the index, filters to approved and in-scope entries, and retrieves a small **top-k** set via **pgvector ANN** sized for **10,000+** Golden examples — those examples are methodology only; fresh SQL is still generated under the same security controls.
 
 ```mermaid
 sequenceDiagram
@@ -130,7 +127,8 @@ sequenceDiagram
     UI->>BFF: Chat turn
     BFF->>Chat: Forward identity + message
     Chat->>PG: Persist Golden candidate (pending)
-    Chat-->>UI: Tool result — approval UI (HITL)
+    Chat-->>BFF: Tool result — in-chat approval (HITL)
+    BFF-->>UI: In-chat approval
     User->>UI: Confirm candidate (or reject)
     UI->>BFF: Confirm / approve candidate
     BFF->>Chat: Approval
@@ -141,8 +139,6 @@ sequenceDiagram
     Ingest->>Emb: Embed PII-safe chunks
     Ingest->>PG: Upsert vectors and mark indexed
     Ingest-->>Bus: Ack
-
-    Note over User,PG: Later — Admin UI can retire an entry (drop from retrieval, keep history)
 ```
 
 ### 2.4 Persona management
@@ -151,13 +147,52 @@ Authorized non-developers edit presentation and tone in the admin UI. PostgreSQL
 
 Each analysis records the persona version it used. 
 
+### 2.5 User preferences
+
+User-level style is stored as structured rows: ``{type, value}`` plus provenance (user, confirmed-at, source turn). The initial type list is:
+
+| type | example values |
+| --- | --- |
+| `list-format` | `bullets`, `table`, `numbered` |
+| `analysis-depth` | `brief`, `standard`, `deep` |
+| `viz-preference` | `text`, `charts`, `mixed` |
+
+New types can be added later without changing the store shape.
+
+Preferences are **not** injected into the prompt. Before applying a style (tables vs bullets, depth, charts), the agent must call **`list_preferences`** and use only returned `{type, value}` rows. It does not invent preferences that are not stored. 
+
+When the user states or consistently shows a preference, the agent proposes a `{type, value}` candidate **in chat** (in-chat confirm; persist is via the chat backend, not the report-delete HTTP path). Only after explicit confirm does application code persist the row. Rejected proposals are dropped.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as Web UI
+    participant BFF as BFF API
+    participant Chat as Chat backend
+    participant PG as PostgreSQL
+
+    User->>UI: Prefers tables / "remember I like bullets"
+    UI->>BFF: Chat turn
+    BFF->>Chat: Forward identity + message
+    Chat->>PG: list_preferences (accepted rows only)
+    Chat-->>BFF: In-chat HITL — propose type + value
+    BFF-->>UI: Propose type + value
+    User->>UI: Confirm
+    UI->>BFF: Confirm
+    BFF->>Chat: Persist
+    Chat->>PG: Upsert preference (type, value, provenance)
+```
+
 ---
+
 
 ## 3. Architecture and technology rationale
 
 The general setup will be a Next.js web UI, connected to a BFF API, responsible for user authentication, request logging and routing to the proper service. This ensures proper separation of concerns as well as extensibility for the future.  BFF is the only service reachable from outside of the network.
 
 Behind this BFF there will be two main services - the Chatbot service, which will hold majority of the logic for the user flows - orchestrating a bounded LangGraph analysis loop for the chatbot, Golden Set examples retrieval, persona injection, persisting user reports etc. The other service would be the Indexing Service, responsible for initial indexing of the Golden Set, as well as ongoing ingestion of new approved candidates. All backend services will be running Python/Starlette on Cloud Run.
+
+**Agent framework.** LangChain / LangGraph is used for the analysis loop because it gives a bounded tool-calling graph (SQL, reports, HITL), checkpointed conversation state, retry middleware, and first-class LangSmith traces — without a custom orchestrator. 
 
 Google Pub/Sub is used for queuing of the Golden Set items for indexing, Indexing Service drains this queue.
 
@@ -169,7 +204,7 @@ For agent observability, a managed LangSmith service is used for traces and eval
 
 Application logs use the standard Python ``logging`` API. The sink is the **Cloud Logging handler** (GCP Cloud Logging).
 
-Persistent storage is delivered via CloudSQL PostgreSQL database with pgvector for Golden Set embeddings.  
+Persistent storage is delivered via Cloud SQL PostgreSQL database with pgvector for Golden Set embeddings.  
 
 Cloud Run is the baseline compute choice because both the chat API and Golden ingestion are independently scalable HTTP or event-driven services with all durable state outside the process.
 
@@ -179,7 +214,7 @@ Vertex API is chosen as the managed Gemini offering, due to alignment with other
 flowchart TB
     subgraph Clients["1. Presentation"]
         UI["Web UI — Firebase App Hosting
-        Chat, Golden review, persona editing"]
+        Chat, persona editing"]
     end
 
     subgraph Edge["2. Edge — only public ingress"]
@@ -213,7 +248,7 @@ flowchart TB
         Read-only analytical facts")]
         Postgres[("Cloud SQL — PostgreSQL + pgvector
         Conversations, reports, preferences
-        Personas, entitlements, audit log
+        Personas, audit log
         Golden candidates and retrieval index")]
         Golden[("Initial Golden Dataset
         Data lake")]
@@ -232,7 +267,7 @@ flowchart TB
 
     UI -->|"HTTPS"| BFF
     BFF -->|"PII-checked SSE / JSON"| UI
-    BFF -->|"Route + forward identity"| Backend
+    BFF -->|"Route + forward identity and JWT scopes"| Backend
 
     Backend -->|"Approved entry ID / version"| PubSub
     PubSub -->|"Ingestion event"| Ingestion
@@ -248,7 +283,7 @@ flowchart TB
 
     Backend <-->|"Persist state
     Retrieve authorized Golden examples
-    Load entitlements"| Postgres
+    Load persona"| Postgres
 
     Golden -->|"Initial ingestion"| Ingestion
     Ingestion -->|"Store approved entries and vectors"| Postgres
@@ -262,16 +297,15 @@ flowchart TB
     Backend -->|"Scrape /metrics"| Metrics
 ```
 
-**Model strategy:** Default chat model ID is **`gemini-3.8-flash`** as an optimized tradeoff between speed, quality and price. A Gemini Pro SKU remains available as a configurable upgrade for complex analysis via Vertex. Embeddings use **`gemini-embedding-001`** at 768 dimensions, subject to retrieval evaluation.
+**Model strategy:** Default chat model ID is **`gemini-3.8-flash`** as an optimized tradeoff between speed, quality and price. A Gemini Pro SKU remains available as a configurable upgrade for complex analysis via Vertex. Embeddings use **`gemini-embedding-001`** at 768 dimensions.
 
 ---
 
 ## 4. Data and state model
 
 PostgreSQL is the application system of record:
-- User product entitlements,
 - Conversation checkpoints,
-- User preferences records,
+- User preferences (``type``, ``value``, provenance; accepted rows only),
 - Persona versions,
 - Report metadata and object references,
 - Golden set candidates,
@@ -279,7 +313,7 @@ PostgreSQL is the application system of record:
 - Audit log
 
 Cloud Storage holds report artifacts.
-A read-only **SQL data store provided by the client** holds analytical facts. The chatbot never writes to it. Access is via least-privilege SQL credentials, allowlisted tables, and deterministic entitlement rewriting.
+A read-only **SQL data store provided by the client** holds analytical facts. The chatbot never writes to it. Access is via least-privilege SQL credentials, allowlisted tables, and deterministic rewriting from JWT brand scopes.
 
 A saved report is a snapshot: original question, SQL, execution timestamp, and the persona / prompt / Golden set items, as well as the pointer to the artifact in Cloud Storage. 
 
@@ -287,9 +321,9 @@ A saved report is a snapshot: original question, SQL, execution timestamp, and t
 
 ## 5. Security and governance
 
-Authentication will be resolved via a JWT token on BFF. The user data will be forwarded to the further layers from that point on without the need for authentication.
+Authentication will be resolved via a JWT on the BFF (issued by the client's identity system). The token carries the user id and **product/brand scopes**. Identity and scopes are forwarded to inner services; those services do not re-authenticate.
 
-Every analytical query — including joins, subqueries, and customer/order cuts — must have allowed-product scope injected and verified in application data-access code - this is not controlled by the LLM, but added deterministically based on the user's entitlement mapping in PostgreSQL (e.g. after JWT auth, load brands for that user such as `Calvin Klein` or `Levi's`, then rewrite SQL on `products` / `order_items` accordingly).
+Every analytical query — including joins, subqueries, and customer/order cuts — must have allowed-product scope injected and verified in application data-access code - this is not controlled by the LLM, but applied deterministically from the JWT (e.g. `brands: ["Calvin Klein"]` or `["Levi's"]`, then rewrite SQL on brand-scoped fact tables accordingly).
 
 SQL is restricted to approved read-only operations, tables, columns, and functions, using least-privilege credentials, cost limits, timeouts, and bounded result sizes.
 
@@ -298,7 +332,7 @@ User text, retrieved examples, tool results, errors, and traces are all sanitize
 
 Persona/tone configuration cannot change security rules - those are deterministic application code and/or backed in system prompt that always takes precedence over the Persona prompt.
 
-**Non-analytical work.** The assistant is allowed only retail analysis and saved-report library operations. We enforce this as **system-prompt policy** (refuse jokes, coding help, jailbreaks, etc.; do not call analysis tools) and **eval cases** that score refusal + no `run_sql`.
+**Non-analytical work.** The assistant is allowed only retail analysis and saved-report library operations. We enforce this as **system-prompt policy** (refuse jokes, coding help, jailbreaks, etc.; do not call analysis tools) and **eval cases** that score refusal + no SQL-tool calls.
 
 ---
 
@@ -330,6 +364,8 @@ Evaluation should be a part of the development flow as well as a periodical gate
 
 The eval set should be extended whenever a new use case is identified and implemented, and should be refined and extended during the QA phase before deploying the system.
 
+**UX.** Besides judge scores, UX is watched through agent metrics: turn latency (p50 / p95), time-to-first SSE token, error and model-retry rates, SQL empty/repair outcomes, and report-delete confirm vs cancel. Slow or failing turns are opened in LangSmith (tool sequence and timings).
+
 **Judge model:** **ChatGPT 5.1 sol**, so the judge is a different family from the Gemini agent and confirmation bias is less plausible.
 
 For algorithmic parts of the system, unit tests and end to end tests will be implemented.
@@ -340,7 +376,7 @@ Application logs (request/auth failures, turn lifecycle, tool start/end, retries
 
 Mutating user actions — report creation and confirmed deletion, Golden set candidate accept/reject, persona activation — are also written to the PostgreSQL **audit log** (actor, action, resource, timestamp) so they can be reconstructed independently of application logs and traces.
 
-Agent-level metrics (turn latency/error rate, tool ok/error, SQL query outcomes including empty/exhausted, model retries, report delete confirm/cancel, auth failures) are exposed via Prometheus at ``GET /metrics`` from a dedicated metrics module. That endpoint is scraped into **Cloud Monitoring** (Managed Prometheus).
+Agent-level metrics (turn latency p50 / p95, time-to-first SSE token, error and model-retry rates, tool ok/error, SQL query outcomes including empty/exhausted, report delete confirm/cancel, auth failures) are exposed via Prometheus at ``GET /metrics`` from a dedicated metrics module. That endpoint is scraped into **Cloud Monitoring** (Managed Prometheus).
 
 ---
 
@@ -354,7 +390,7 @@ New capabilities (charts, email, extra sources) should attach as tools or servic
 
 | Part | Service to provision |
 | --- | --- |
-| Web UI (chat, Golden review, persona editing) | **Firebase App Hosting** (Next.js) |
+| Web UI (chat, persona editing) | **Firebase App Hosting** (Next.js) |
 | BFF (auth, request logging, routing — only public ingress) | **Cloud Run** |
 | Chatbot backend (Starlette, SSE, LangGraph loop) | **Cloud Run** |
 | Golden ingestion / indexing | **Cloud Run** |
@@ -362,7 +398,7 @@ New capabilities (charts, email, extra sources) should attach as tools or servic
 | Chat / analysis LLM | **Vertex AI** — `gemini-3.8-flash` (Pro as optional upgrade) |
 | Embeddings | **Vertex AI** — `gemini-embedding-001` |
 | Analytical facts (read-only) | **SQL data store provided by the client** |
-| App state, entitlements, personas, Golden vectors | **Cloud SQL PostgreSQL** with **pgvector** |
+| App state (conversations, preferences, reports, personas, Golden vectors, audit log) | **Cloud SQL PostgreSQL** with **pgvector** |
 | Report HTML artifacts | **Cloud Storage** |
 | Initial Golden corpus | Object store / data lake (ingested into Postgres) |
 | Identity & least-privilege access | **Cloud IAM** (service accounts) |
@@ -376,7 +412,10 @@ New capabilities (charts, email, extra sources) should attach as tools or servic
 
 ## 10. Trade-offs, risks, and requirement coverage
 
-**Risk — unauthorized product leakage via model-written SQL.** The LLM may emit SQL that omits brand filters, joins through unscoped tables, or otherwise returns rows outside the caller's entitlements (e.g. a Calvin Klein user seeing Levi's revenue). Prompt instructions alone are not a control. **Remediation:** every query passes through deterministic application SQL validation before SQL — allowlisted read-only statements and tables only, then entitlement scope is **injected/rewritten** in code from the PostgreSQL mapping (not trusted from the model). Invalid or unscoped SQL is rejected; the agent may repair within budget, but execution never bypasses the guard. Least-privilege SQL credentials, bytes/row caps, and brand-auth evals further reduce residual risk.
+**Risk — unauthorized product leakage via model-written SQL.** The LLM may emit SQL that omits brand filters, joins through unscoped tables, or otherwise returns rows outside the caller's entitlements (e.g. a Calvin Klein user seeing Levi's revenue). Prompt instructions alone are not a control. **Remediation:** every query passes through deterministic application SQL validation before SQL — allowlisted read-only statements and tables only, then entitlement scope is **injected/rewritten** in code from the **JWT brand scopes** (not trusted from the model). Invalid or unscoped SQL is rejected; the agent may repair within budget, but execution never bypasses the guard. Least-privilege SQL credentials, bytes/row caps, and brand-auth evals further reduce residual risk.
+
+**Risk — misuse for non-analytical work.** Users (or jailbreaks) may ask for jokes, coding help, medical/legal advice, or general chat. **Remediation (v1):** system-prompt policy (analysis and report-library only; short refusal; no analysis tools) plus eval cases that score refusal and no SQL-tool calls. SQL allowlisting still blocks unauthorized data access if a tool is called. **If needed later:** a deterministic pre-filter or a dedicated in-scope classifier in front of the agent, so off-scope turns never reach the model or tools.
+
 
 
 | Trade-off | Default choice | Alternative |
@@ -389,14 +428,20 @@ New capabilities (charts, email, extra sources) should attach as tools or servic
 
 **Future consideration — analysis continuing after SSE disconnect.** If product later needs long-running analyses to outlive the HTTP/SSE connection, add a durable worker (Cloud Run job / worker + queue) so work continues, progress is persisted, and the client resumes from chat history. Until then, analysis runs in the chatbot request/SSE path.
 
+**Future consideration — Golden / report library UI.** A dedicated UI to browse, edit, and retire Golden Set records and to manage report snapshots (CRUD outside chat) is out of scope. In-chat HITL covers report delete confirmation and Golden candidate accept/reject; persona editing stays in the admin UI. A library UI can be added later if operators need it.
+
+**Future consideration — richer access control.** Brand scopes on the JWT are the v1 control. A PostgreSQL user/role mapping, extra entitlement dimensions beyond brand, or ABAC can be added later if the identity token cannot carry the full policy.
+
+**Future consideration — report templates and multiple personas.** Snapshots and a single global persona are v1. Reusable report templates and selectable persona variants can be added later.
+
 | Assignment requirement | Design section |
 | --- | --- |
-| Hybrid intelligence / Golden retrieval and updates | 3.1, 3.3, 6 |
+| Hybrid intelligence / Golden retrieval and updates | 2.3 |
 | Safety, PII masking, product-scoped analysis | 5 |
-| Saved reports and confirmed deletion | 3.2, 4 |
-| User-level preference learning | 6 |
-| System-level learning loop | 6 |
-| Resilience and graceful error handling | 3.1, 8 |
+| Saved reports and confirmed deletion | 2.2, 4 |
+| User-level preference learning | 2.5, 4 |
+| System-level learning loop | 2.3 |
+| Resilience and graceful error handling | 6 |
 | Quality assurance / evaluation | 7 |
 | Observability and debugging | 7 |
 | Persona management without redeploy | 2.4 |

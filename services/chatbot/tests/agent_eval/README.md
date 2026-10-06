@@ -68,10 +68,7 @@ code). The agent should refuse and not call BigQuery tools. Run with
 Default judge is the same Gemini family as the agent (`JUDGE_MODEL` /
 `GEMINI_MODEL`). That matches the prototype's Gemini-only constraint.
 
-**Recommendation for production:** use a **different model family** for the
-judge (prefer ChatGPT; Claude is also fine). Different families have different
-strengths, so a cross-family judge is less likely to exhibit confirmation bias
-when scoring work produced by the agent model. Documented in the HLD as well.
+**HLD:** judge is **ChatGPT 5.1 sol** (different family from the Gemini agent).
 
 ## LangSmith
 
