@@ -21,7 +21,7 @@ This system lets non-technical executives ask natural-language questions about s
 - multiple selectable personas
 
 **Assumptions:**
-- users are entitled to a defined set of products, stored as a user-to-product mapping in PostgreSQL
+- users are entitled to a defined set of products/brands, stored as a user-to-entitlement mapping in PostgreSQL (for example user `brand-calvin` → brands `["Calvin Klein"]`; admin → all brands)
 - BigQuery `thelook_ecommerce` tables `orders`, `order_items`, `products`, and `users` are the only analytical sources. 
 
 ---
@@ -48,6 +48,7 @@ Reports will be saved as HTML artifacts for ease of debugging and better results
 sequenceDiagram
     actor User
     participant UI as Web UI / CLI
+    participant BFF as BFF API
     participant API as Chat backend
     participant PG as PostgreSQL
     participant Emb as Vertex embeddings
@@ -55,7 +56,8 @@ sequenceDiagram
     participant BQ as BigQuery
 
     User->>UI: Question
-    UI->>API: Authenticated request
+    UI->>BFF: Authenticated request
+    BFF->>API: Route + forward identity
     API->>PG: Entitlements, context, persona, preferences
     API->>API: Scope check / clarify if needed
     API->>Emb: Embed contextualized question
@@ -66,43 +68,43 @@ sequenceDiagram
     API->>API: Inspect and bounded repair if justified
     API->>LLM: Draft evidence-based answer
     API->>API: Output PII / policy check
-    API-->>UI: SSE progress + validated content
+    API-->>BFF: SSE progress + validated content
+    BFF-->>UI: SSE stream
     API->>PG: Persist turn state and sanitized evidence
 ```
 
 ### 2.2 Confirmed report deletion
 
-TODO: Do we want a dedicated UI outside of the chatbot?
-
-Report removal is a destructive action, and as such should be an application-controlled workflow. When the user requests to delete a report, the chatbot can resolve the report in question and should show an approval UI (frontend component shown via a tool call), which, upon approval, should call an HTTP endpoint to delete the report. The agent should never have access to delete the report directly.
-
-TODO: Fix the diagram to the description
+Report removal is a destructive action, and as such should be an application-controlled workflow. When the user requests to delete a report, the chatbot can resolve the report in question and should show an approval UI (frontend component shown via a tool call), which, upon approval, should call an HTTP endpoint to **hard-delete** the report: remove the PostgreSQL metadata row and permanently delete the Cloud Storage artifact (no soft-delete / tombstone). The agent should never have access to delete the report directly.
 
 ```mermaid
 sequenceDiagram
     actor User
     participant UI as Web UI
-    participant API as Chat backend
+    participant BFF as BFF API
+    participant Agent as Chat agent tools
+    participant API as Delete HTTP API
     participant PG as PostgreSQL
     participant GCS as Cloud Storage
 
-    User->>UI: Delete request (natural language or UI)
-    UI->>API: Authenticated delete intent
-    API->>PG: Resolve owned report IDs
-    API-->>UI: Preview titles, count, consequences
-    API->>PG: Persist pending op + token + expiry
-    User->>UI: Explicit confirm
-    UI->>API: Confirmation token
-    API->>PG: Recheck ownership and pending state
-    API->>PG: Delete only the frozen selection
-    API->>GCS: Remove or tombstone artifacts
+    User->>UI: Delete request (natural language)
+    UI->>BFF: Chat turn
+    BFF->>Agent: Forward identity + message
+    Agent->>PG: Resolve owned report IDs
+    Agent-->>UI: Tool result — approval UI (preview, no delete)
+    Note over Agent: Agent has no delete tool
+    User->>UI: Explicit confirm in approval UI
+    UI->>BFF: HTTP hard-delete (selected report IDs)
+    BFF->>API: Authenticated delete
+    API->>PG: Recheck ownership
+    API->>PG: Hard-delete metadata rows
+    API->>GCS: Hard-delete report artifacts
     API->>PG: Audit event
-    API-->>UI: Deletion result
+    API-->>BFF: Deletion result
+    BFF-->>UI: Deletion result
 ```
 
 ### 2.3 Golden set and learning
-
-TODO: Add the separate UI
 
 Part of the analysis loop is deciding whether a given analysis topic is a good candidate for the Golden Set - so a report generated based on a question, together with it's SQL Query. When a candidate has been identified, it is saved in the PostgreSQL database and a dedicated UI is being shown to the user, similarly to report deletion confirmation. Once a candidate has been confirmed, it is being added to the Pub/Sub and subsequently ran through embedding and saved in pgVector, and the candidate status is changed to accepted. Ingestion implementation must provide idempotency and retries.
 
@@ -112,28 +114,34 @@ Once an entry has been retired (through a dedicated UI), it is dropped out of re
 
 At query time the Chatbot Service embeds a contextualized question with the same model and dimensions as the index, filters to approved and in-scope entries, retrieves a small budgeted set, and treats those examples as methodology — then generates fresh SQL under the same security controls. User preferences are stored with provenance and used as part of the context as well.
 
-TODO: Fix the diagram to the description
-
 ```mermaid
 sequenceDiagram
-    actor Analyst
-    participant Admin as Admin UI
-    participant API as Chat backend
+    actor User
+    participant UI as Web UI
+    participant BFF as BFF API
+    participant Chat as Chat backend
     participant PG as PostgreSQL
     participant Bus as Pub/Sub
     participant Ingest as Ingestion service
     participant Emb as Vertex embeddings
 
-    Analyst->>Admin: Review / edit candidate
-    Admin->>API: Approve version
-    API->>PG: Persist approved immutable version
-    API->>PG: Write outbox event
-    API->>Bus: Publish entry ID + version
+    User->>UI: Analysis that yields a strong trio
+    UI->>BFF: Chat turn
+    BFF->>Chat: Forward identity + message
+    Chat->>PG: Persist Golden candidate (pending)
+    Chat-->>UI: Tool result — approval UI (HITL)
+    User->>UI: Confirm candidate (or reject)
+    UI->>BFF: Confirm / approve candidate
+    BFF->>Chat: Approval
+    Chat->>PG: Mark accepted + immutable version
+    Chat->>Bus: Publish entry ID + version
     Bus->>Ingest: Ingestion event
     Ingest->>PG: Reload and verify that version
     Ingest->>Emb: Embed PII-safe chunks
     Ingest->>PG: Upsert vectors and mark indexed
     Ingest-->>Bus: Ack
+
+    Note over User,PG: Later — Admin UI can retire an entry (drop from retrieval, keep history)
 ```
 
 ### 2.4 Persona management
@@ -146,15 +154,13 @@ Each analysis records the persona version it used.
 
 ## 3. Architecture and technology rationale
 
-TODO: BFF
-
 The general setup will be a Next.js web UI, connected to a BFF API, responsible for user authentication, request logging and routing to the proper service. This ensures proper separation of concerns as well as extensibility for the future.  BFF is the only service reachable from outside of the network.
 
 Behind this BFF there will be two main services - the Chatbot service, which will hold majority of the logic for the user flows - orchestrating a bounded LangGraph analysis loop for the chatbot, Golden Set examples retrieval, persona injection, persisting user reports etc. The other service would be the Indexing Service, responsible for initial indexing of the Golden Set, as well as ongoing ingestion of new approved candidates. All backend services will be running Python/Starlette on Cloud Run.
 
 Google Pub/Sub is used for queuing of the Golden Set items for indexing, Indexing Service drains this queue.
 
-TODO: Decide between Vercel and Google Frontend offering
+The Next.js web UI is hosted on **Firebase App Hosting** so the frontend stays in the same Google Cloud estate as Cloud Run, IAM, and the rest of the stack.
 
 User report snapshot files will be persisted in Cloud Storage.
 
@@ -173,33 +179,40 @@ Vertex API is chosen as a Gemini production offering, due to alignment with othe
 ```mermaid
 flowchart TB
     subgraph Clients["1. Presentation"]
-        UI["Web UI — Firebase App Hosting / Vercel
+        UI["Web UI — Firebase App Hosting
         Chat, Golden review, persona editing"]
         CLI["CLI — prototype"]
     end
 
-    subgraph Application["2. Application — Cloud Run"]
+    subgraph Edge["2. Edge — only public ingress"]
+        BFF["BFF API
+        Auth, request logging, routing"]
+    end
+
+    subgraph Application["3. Application — Cloud Run"]
         Backend["Chatbot backend
         Starlette + REST / SSE
         LangChain / LangGraph
         Bounded analysis loop"]
+        Worker["Durable analysis worker
+        Continues work after SSE disconnect"]
         Ingestion["Golden ingestion service
         Validate, chunk, embed, index"]
     end
 
-    subgraph Messaging["3. Messaging"]
+    subgraph Messaging["4. Messaging"]
         PubSub["Google Cloud Pub/Sub"]
     end
 
-    subgraph AI["4. Models — Vertex AI"]
+    subgraph AI["5. Models — Vertex AI"]
         Chat["Gemini chatbot
-        Default: Flash
+        Default: gemini-3.8-flash
         Complex analysis: Pro"]
         Embedding["Gemini Embedding
         gemini-embedding-001"]
     end
 
-    subgraph Data["5. Data sources and persistence"]
+    subgraph Data["6. Data sources and persistence"]
         BigQuery[("BigQuery
         Read-only retail dataset")]
         Postgres[("Cloud SQL — PostgreSQL + pgvector
@@ -212,7 +225,7 @@ flowchart TB
         Report artifacts")]
     end
 
-    subgraph Operations["6. Observability and evaluation"]
+    subgraph Operations["7. Observability and evaluation"]
         LangSmith["LangSmith
         Sanitized traces, debugging, evaluations"]
         CloudLogging["GCP Cloud Logging
@@ -221,22 +234,27 @@ flowchart TB
         /metrics → Cloud Monitoring"]
     end
 
-    UI -->|"Authenticated requests"| Backend
-    CLI -->|"Chat requests"| Backend
-    Backend -->|"PII-checked responses / SSE"| UI
-    Backend -->|"PII-checked responses"| CLI
+    UI -->|"HTTPS"| BFF
+    CLI -->|"HTTPS"| BFF
+    BFF -->|"Route + forward identity"| Backend
+    Backend -->|"PII-checked SSE / JSON via BFF"| UI
+    Backend -->|"PII-checked responses via BFF"| CLI
+    Backend -->|"Enqueue / resume long runs"| Worker
+    Worker -->|"Persist progress"| Postgres
 
     Backend -->|"Approved entry ID / version"| PubSub
     PubSub -->|"Ingestion event"| Ingestion
 
     Backend -->|"PII-safe prompts
     Bounded retries"| Chat
+    Worker -->|"PII-safe prompts"| Chat
     Backend -->|"PII-safe query text"| Embedding
     Ingestion -->|"PII-safe Golden text"| Embedding
 
     Backend <-->|"Validated SQL / results
     Enforced product scope
     Bounded SQL repair"| BigQuery
+    Worker <-->|"Validated SQL / results"| BigQuery
 
     Backend <-->|"Persist state
     Retrieve authorized Golden examples
@@ -248,12 +266,13 @@ flowchart TB
 
     Backend -->|"PII-safe traces"| LangSmith
     Ingestion -->|"PII-safe ingestion traces"| LangSmith
+    BFF -->|"Access / edge logs"| CloudLogging
     Backend -->|"Application logs"| CloudLogging
     Ingestion -->|"Application logs"| CloudLogging
     Backend -->|"Scrape /metrics"| Metrics
 ```
 
-**Model strategy:** Flash is the default chat model as an optimized tradeoff between speed, quality and price. Pro is available as a choice for complex analysis. Both models are available as hosted Vertex APIs and exact model IDs are configurable via environment variables. Embeddings use `gemini-embedding-001` as default model (configurable via environment as well) at 768 dimensions, subject to retrieval evaluation.
+**Model strategy:** Default chat model ID is **`gemini-3.8-flash`** (same as the prototype) as an optimized tradeoff between speed, quality and price. A Gemini Pro SKU remains available as a configurable upgrade for complex analysis via Vertex. Embeddings use **`gemini-embedding-001`** at 768 dimensions (same default as the prototype), subject to retrieval evaluation.
 
 ---
 
@@ -270,7 +289,7 @@ PostgreSQL is the application system of record:
 - Audit log
 
 Cloud Storage holds production report artifacts.
-BigQuery holds analytical facts and is readonly for the chatbot system. TODO: Ask if this is prod req or I'm supposed to propose something here
+External SQL-compatible data storage holds analytical facts and is readonly for the chatbot system.
 
 A saved report is a snapshot: original question, SQL, execution timestamp, and the persona / prompt / Golden set items, as well as the pointer to the artifact in Cloud Storage. 
 
@@ -280,7 +299,7 @@ A saved report is a snapshot: original question, SQL, execution timestamp, and t
 
 Authentication will be resolved via a JWT token on BFF. The user data will be forwarded to the further layers from that point on without the need for authentication.
 
-Every analytical query — including joins, subqueries, and customer/order cuts — must have allowed-product scope injected and verified in application data-access code - this is not controlled by the LLM, but added deterministically based on user authorization mapping in the PostgreSQL database.
+Every analytical query — including joins, subqueries, and customer/order cuts — must have allowed-product scope injected and verified in application data-access code - this is not controlled by the LLM, but added deterministically based on the user's entitlement mapping in PostgreSQL (e.g. after JWT auth, load brands for that user such as `Calvin Klein` or `Levi's`, then rewrite SQL on `products` / `order_items` accordingly).
 
 SQL is restricted to approved read-only operations, tables, columns, and functions, using least-privilege credentials, cost limits, timeouts, and bounded result sizes.
 
@@ -295,11 +314,13 @@ Persona/tone configuration cannot change security rules - those are deterministi
 
 Transient provided failures get limited retries with backoff. If the limit is exceeded, the conversation state is preserved and an error is shown, with manual retry possibility. 
 
-SQL errors and empty result sets are detected in application code on the BigQuery tool path. The tool returns a structured ``repair_required`` (or ``empty_result_exhausted``) payload; the agent may rewrite and retry within a per-turn empty-result budget so costs stay bounded.
+SQL errors and empty result sets are detected in application code on the SQL tool path. The tool returns a structured ``repair_required`` (or ``empty_result_exhausted``) payload; the agent may rewrite and retry within a per-turn empty-result budget so costs stay bounded.
 
-TODO:
+In case of SSE disconnect, the analysis should continue and should be available in chat history. Long-running analyses run on a **durable worker** (Cloud Run job / worker service driven by a queue) so work outlives the HTTP/SSE connection; the chat API persists progress and the client resumes from conversation state.
 
-This section should cover SSE reconnect behavior, whether analysis continues after disconnect, **proposed** durable execution for work that must outlive HTTP, Pub/Sub redelivery and poison events, concurrency and cost budgets, Cloud Run min/max instances, and backup/rollback procedures. Do not invent business-approved SLA, RTO, or RPO numbers.
+The budget for recursion limit is set via configuration, as well as cost budget for the agent. 
+
+The database should be backed up daily automatically in GCP.
 
 ---
 
@@ -337,13 +358,18 @@ New capabilities (charts, email, extra sources) should attach as tools or servic
 
 ---
 
-## 9. Trade-offs, risks, open decisions, and requirement coverage
+## 9. Trade-offs, risks, and requirement coverage
 
-TODO:
+**Risk — unauthorized product leakage via model-written SQL.** The LLM may emit SQL that omits brand filters, joins through unscoped tables, or otherwise returns rows outside the caller's entitlements (e.g. a Calvin Klein user seeing Levi's revenue). Prompt instructions alone are not a control. **Remediation:** every query passes through deterministic application SQL validation before SQL — allowlisted read-only statements and tables only, then entitlement scope is **injected/rewritten** in code from the PostgreSQL mapping (not trusted from the model). Invalid or unscoped SQL is rejected; the agent may repair within budget, but execution never bypasses the guard. Least-privilege SQL credentials, bytes/row caps, and brand-auth evals further reduce residual risk.
 
-The main trade-offs to expand here are managed Cloud Run vs Kubernetes, Flash-default vs always-Pro quality/cost, pgvector-in-Postgres vs a dedicated vector store, and snapshot reports vs later templates. The main risks are unauthorized product leakage through model-written SQL, dual-write loss between approval and indexing, analytically wrong metric grain, and PII in traces or streamed tokens.
 
-**Open decisions:** web hosting provider; exact Gemini model IDs; real entitlement mapping; soft vs permanent deletion and artifact GC; small-cohort suppression policy; whether long analyses use a durable worker; backup RPO/RTO once the client sets them.
+| Trade-off | Default choice | Alternative |
+| --- | --- | --- |
+| Web UI hosting | Firebase App Hosting (GCP-aligned) | **Vercel** if the client already runs Next.js there — same BFF/API contract; only the frontend deploy target changes |
+| Compute | **Cloud Run** (managed scale, less ops) | **Kubernetes** if custom networking/sidecars/multi-service scheduling are required — higher infra and operational complexity |
+| Chat model | **`gemini-3.8-flash`** — lower cost and lower latency | Gemini **Pro** for harder analyses — higher quality at higher cost and slower responses |
+
+**Open question:** backup **RPO/RTO** targets once the client sets acceptable data-loss and recovery-time budgets (daily Cloud SQL backups are the baseline until then).
 
 | Assignment requirement | Design section |
 | --- | --- |
@@ -362,6 +388,3 @@ The main trade-offs to expand here are managed Cloud Run vs Kubernetes, Flash-de
 | Dataset: `thelook_ecommerce` four tables | 1, 3.1, 5 |
 | Requirement coverage / open items | 10 |
 
-
-
-TODO: Compaction
