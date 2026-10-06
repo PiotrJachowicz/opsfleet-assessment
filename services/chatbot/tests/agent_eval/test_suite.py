@@ -21,6 +21,8 @@ def test_load_suite_parses_cases_and_globals() -> None:
     delete_case = next(c for c in suite.cases if c.id == 11)
     assert delete_case.category == "report_delete"
     assert delete_case.turns[-1] == "y"
+    scope_case = next(c for c in suite.cases if c.id == 14)
+    assert scope_case.category == "scope_policy"
 
 
 def test_suite_score_ignores_empty() -> None:

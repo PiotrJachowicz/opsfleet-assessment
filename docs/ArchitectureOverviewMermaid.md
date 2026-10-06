@@ -3,7 +3,6 @@ flowchart TB
     subgraph Clients["1. Presentation"]
         UI["Web UI — Firebase App Hosting
         Chat, Golden review, persona editing"]
-        CLI["CLI — prototype"]
     end
 
     subgraph Edge["2. Edge — only public ingress"]
@@ -16,8 +15,6 @@ flowchart TB
         Starlette + REST / SSE
         LangChain / LangGraph
         Bounded analysis loop"]
-        Worker["Durable analysis worker
-        Continues work after SSE disconnect"]
         Ingestion["Golden ingestion service
         Validate, chunk, embed, index"]
     end
@@ -35,8 +32,8 @@ flowchart TB
     end
 
     subgraph Data["6. Data sources and persistence"]
-        BigQuery[("BigQuery
-        Read-only retail dataset")]
+        Analytics[("Client SQL store
+        Read-only analytical facts")]
         Postgres[("Cloud SQL — PostgreSQL + pgvector
         Conversations, reports, preferences
         Personas, entitlements, audit log
@@ -51,32 +48,26 @@ flowchart TB
         LangSmith["LangSmith
         Sanitized traces, debugging, evaluations"]
         CloudLogging["GCP Cloud Logging
-        Application logs (prod sink)"]
+        Application logs"]
         Metrics["Prometheus metrics
         /metrics → Cloud Monitoring"]
     end
 
     UI -->|"HTTPS"| BFF
-    CLI -->|"HTTPS"| BFF
+    BFF -->|"PII-checked SSE / JSON"| UI
     BFF -->|"Route + forward identity"| Backend
-    Backend -->|"PII-checked SSE / JSON via BFF"| UI
-    Backend -->|"PII-checked responses via BFF"| CLI
-    Backend -->|"Enqueue / resume long runs"| Worker
-    Worker -->|"Persist progress"| Postgres
 
     Backend -->|"Approved entry ID / version"| PubSub
     PubSub -->|"Ingestion event"| Ingestion
 
     Backend -->|"PII-safe prompts
     Bounded retries"| Chat
-    Worker -->|"PII-safe prompts"| Chat
     Backend -->|"PII-safe query text"| Embedding
     Ingestion -->|"PII-safe Golden text"| Embedding
 
     Backend <-->|"Validated SQL / results
     Enforced product scope
-    Bounded SQL repair"| BigQuery
-    Worker <-->|"Validated SQL / results"| BigQuery
+    Bounded SQL repair"| Analytics
 
     Backend <-->|"Persist state
     Retrieve authorized Golden examples

@@ -1,6 +1,6 @@
 # High-Level Design: Retail Data Analysis Chatbot
 
-This document describes the **production** design for the retail data analysis assistant. Prototype setup and implementation are described in appropraite readme.md.
+This document describes the design for the retail data analysis assistant. Setup and implementation notes are in `readme.md`.
 
 ---
 
@@ -14,15 +14,16 @@ This system lets non-technical executives ask natural-language questions about s
 - Golden set retrieval,
 - Golden set candidates approval & addition,
 - persona editing for authorized non-developers (single instance with change history)
-- and the operational controls needed to run that in production.
+- and the operational controls needed to run the system.
 
 **Out of scope, but possible future additions:**
 - reusable report templates instead of stored snapshots,
 - multiple selectable personas
 
 **Assumptions:**
-- users are entitled to a defined set of products/brands, stored as a user-to-entitlement mapping in PostgreSQL (for example user `brand-calvin` → brands `["Calvin Klein"]`; admin → all brands)
-- BigQuery `thelook_ecommerce` tables `orders`, `order_items`, `products`, and `users` are the only analytical sources. 
+- users are entitled to a defined set of products/brands, stored as a user-role-to-entitlement mapping in PostgreSQL (for example role `brand-calvin` → brands `["Calvin Klein"]`; admin → all brands)
+- additional entitlements might be introduced (not only brand-based)
+- analytical facts come from a **read-only SQL data store provided by the client** (schema and entitlements defined with the client; not tied to a specific warehouse SKU) 
 
 ---
 
@@ -36,7 +37,7 @@ The full agent turn is as follows:
 - retrieve a small set of approved Golden Set examples,
 - plan and generate SQL,
 - SQL validation in deterministic application code,
-- SQL execution on BigQuery,
+- SQL execution against the client-provided analytical store,
 - result inspection and possible bounded repairs
 - writing an evidence-based answer that is PII-checked before stream or return.
 
@@ -47,13 +48,13 @@ Reports will be saved as HTML artifacts for ease of debugging and better results
 ```mermaid
 sequenceDiagram
     actor User
-    participant UI as Web UI / CLI
+    participant UI as Web UI
     participant BFF as BFF API
     participant API as Chat backend
     participant PG as PostgreSQL
     participant Emb as Vertex embeddings
     participant LLM as Vertex Gemini
-    participant BQ as BigQuery
+    participant SQL as Client SQL store
 
     User->>UI: Question
     UI->>BFF: Authenticated request
@@ -64,7 +65,7 @@ sequenceDiagram
     API->>PG: Retrieve approved Golden examples
     API->>LLM: Plan and draft SQL
     API->>API: Validate, constrain, enforce product scope
-    API->>BQ: Execute read-only query
+    API->>SQL: Execute read-only query
     API->>API: Inspect and bounded repair if justified
     API->>LLM: Draft evidence-based answer
     API->>API: Output PII / policy check
@@ -166,22 +167,19 @@ User report snapshot files will be persisted in Cloud Storage.
 
 For agent observability, a managed LangSmith service is used for traces and evaluations.
 
-Application logs use the standard Python ``logging`` API. In production, the sink is **GCP Cloud Logging** (Cloud Run / ops agent ingestion of structured stdout, or the Cloud Logging handler). The prototype uses a local rotating **file sink** under ``output/logs`` (gitignored) so developers can inspect turn/tool/error logs without cloud setup; swapping the sink does not require changing call sites.
+Application logs use the standard Python ``logging`` API. The sink is the **Cloud Logging handler** (GCP Cloud Logging).
 
 Persistent storage is delivered via CloudSQL PostgreSQL database with pgvector for Golden Set embeddings.  
 
 Cloud Run is the baseline compute choice because both the chat API and Golden ingestion are independently scalable HTTP or event-driven services with all durable state outside the process.
 
-Kubernetes is a future option only if concrete requirements (custom networking, sidecars, multi-service scheduling) justify the operational overhead.  This option should be kept in mind during implementation.
-
-Vertex API is chosen as a Gemini production offering, due to alignment with other GCP services we are using, IAM integration and service accounts, ops alignment and enterprise data handling.
+Vertex API is chosen as the managed Gemini offering, due to alignment with other GCP services we are using, IAM integration and service accounts, ops alignment and enterprise data handling.
 
 ```mermaid
 flowchart TB
     subgraph Clients["1. Presentation"]
         UI["Web UI — Firebase App Hosting
         Chat, Golden review, persona editing"]
-        CLI["CLI — prototype"]
     end
 
     subgraph Edge["2. Edge — only public ingress"]
@@ -194,8 +192,6 @@ flowchart TB
         Starlette + REST / SSE
         LangChain / LangGraph
         Bounded analysis loop"]
-        Worker["Durable analysis worker
-        Continues work after SSE disconnect"]
         Ingestion["Golden ingestion service
         Validate, chunk, embed, index"]
     end
@@ -213,8 +209,8 @@ flowchart TB
     end
 
     subgraph Data["6. Data sources and persistence"]
-        BigQuery[("BigQuery
-        Read-only retail dataset")]
+        Analytics[("Client SQL store
+        Read-only analytical facts")]
         Postgres[("Cloud SQL — PostgreSQL + pgvector
         Conversations, reports, preferences
         Personas, entitlements, audit log
@@ -229,32 +225,26 @@ flowchart TB
         LangSmith["LangSmith
         Sanitized traces, debugging, evaluations"]
         CloudLogging["GCP Cloud Logging
-        Application logs (prod sink)"]
+        Application logs"]
         Metrics["Prometheus metrics
         /metrics → Cloud Monitoring"]
     end
 
     UI -->|"HTTPS"| BFF
-    CLI -->|"HTTPS"| BFF
+    BFF -->|"PII-checked SSE / JSON"| UI
     BFF -->|"Route + forward identity"| Backend
-    Backend -->|"PII-checked SSE / JSON via BFF"| UI
-    Backend -->|"PII-checked responses via BFF"| CLI
-    Backend -->|"Enqueue / resume long runs"| Worker
-    Worker -->|"Persist progress"| Postgres
 
     Backend -->|"Approved entry ID / version"| PubSub
     PubSub -->|"Ingestion event"| Ingestion
 
     Backend -->|"PII-safe prompts
     Bounded retries"| Chat
-    Worker -->|"PII-safe prompts"| Chat
     Backend -->|"PII-safe query text"| Embedding
     Ingestion -->|"PII-safe Golden text"| Embedding
 
     Backend <-->|"Validated SQL / results
     Enforced product scope
-    Bounded SQL repair"| BigQuery
-    Worker <-->|"Validated SQL / results"| BigQuery
+    Bounded SQL repair"| Analytics
 
     Backend <-->|"Persist state
     Retrieve authorized Golden examples
@@ -272,7 +262,7 @@ flowchart TB
     Backend -->|"Scrape /metrics"| Metrics
 ```
 
-**Model strategy:** Default chat model ID is **`gemini-3.8-flash`** (same as the prototype) as an optimized tradeoff between speed, quality and price. A Gemini Pro SKU remains available as a configurable upgrade for complex analysis via Vertex. Embeddings use **`gemini-embedding-001`** at 768 dimensions (same default as the prototype), subject to retrieval evaluation.
+**Model strategy:** Default chat model ID is **`gemini-3.8-flash`** as an optimized tradeoff between speed, quality and price. A Gemini Pro SKU remains available as a configurable upgrade for complex analysis via Vertex. Embeddings use **`gemini-embedding-001`** at 768 dimensions, subject to retrieval evaluation.
 
 ---
 
@@ -288,8 +278,8 @@ PostgreSQL is the application system of record:
 - Retrieval vectors
 - Audit log
 
-Cloud Storage holds production report artifacts.
-External SQL-compatible data storage holds analytical facts and is readonly for the chatbot system.
+Cloud Storage holds report artifacts.
+A read-only **SQL data store provided by the client** holds analytical facts. The chatbot never writes to it. Access is via least-privilege SQL credentials, allowlisted tables, and deterministic entitlement rewriting.
 
 A saved report is a snapshot: original question, SQL, execution timestamp, and the persona / prompt / Golden set items, as well as the pointer to the artifact in Cloud Storage. 
 
@@ -308,6 +298,8 @@ User text, retrieved examples, tool results, errors, and traces are all sanitize
 
 Persona/tone configuration cannot change security rules - those are deterministic application code and/or backed in system prompt that always takes precedence over the Persona prompt.
 
+**Non-analytical work.** The assistant is allowed only retail analysis and saved-report library operations. We enforce this as **system-prompt policy** (refuse jokes, coding help, jailbreaks, etc.; do not call analysis tools) and **eval cases** that score refusal + no `run_sql`.
+
 ---
 
 ## 6. Reliability, scalability, deployment, and recovery
@@ -316,9 +308,7 @@ Transient provided failures get limited retries with backoff. If the limit is ex
 
 SQL errors and empty result sets are detected in application code on the SQL tool path. The tool returns a structured ``repair_required`` (or ``empty_result_exhausted``) payload; the agent may rewrite and retry within a per-turn empty-result budget so costs stay bounded.
 
-In case of SSE disconnect, the analysis should continue and should be available in chat history. Long-running analyses run on a **durable worker** (Cloud Run job / worker service driven by a queue) so work outlives the HTTP/SSE connection; the chat API persists progress and the client resumes from conversation state.
-
-The budget for recursion limit is set via configuration, as well as cost budget for the agent. 
+The initial LangGraph **recursion limit is 50** steps per turn, and the initial **per-turn Vertex cost ceiling is USD 1.00**. Both are configuration and can be adjusted once real usage (typical tool-call depth and spend) is known. 
 
 The database should be backed up daily automatically in GCP.
 
@@ -338,17 +328,19 @@ Evaluation should be a part of the development flow as well as a periodical gate
 - Report deletion confirmation,
 - Tool use (in case of extensions)
 
-The eval set should be extended whenever a new use case is identified and implemented, and should be refined and extended during the QA phase before deploying the system to production.
+The eval set should be extended whenever a new use case is identified and implemented, and should be refined and extended during the QA phase before deploying the system.
 
-**Judge model family:** Prefer a **cross-family** judge relative to the agent model (e.g. ChatGPT judging a Gemini agent; Claude is also acceptable). Different model families have different strengths, so scoring with another family makes confirmation bias — the judge rubber-stamping work that “looks like” its own style — less plausible. The prototype may default the judge to Gemini only because the engagement constrains the stack to Gemini; that is a prototype concession, not the recommended production posture.
+**Judge model:** **ChatGPT 5.1 sol**, so the judge is a different family from the Gemini agent and confirmation bias is less plausible.
 
 For algorithmic parts of the system, unit tests and end to end tests will be implemented.
 
 Live agent traces go to managed LangSmith. Trace payloads must remain PII-safe (email and phone scrubbed) before export.
 
-Application logs (request/auth failures, turn lifecycle, tool start/end, retries, unhandled errors) use Python ``logging``. Production ships them to **GCP Cloud Logging** via the Cloud Run logging integration (structured logs on stdout) or an explicit Cloud Logging handler. The prototype keeps the same logger calls but attaches a rotating **file sink** at ``output/logs/chatbot.log`` so local debugging does not depend on GCP. Prefer logging identifiers (``user_id``, ``conversation_id``, tool names) rather than raw user message text.
+Application logs (request/auth failures, turn lifecycle, tool start/end, retries, unhandled errors) use Python ``logging`` with the **Cloud Logging handler**. Prefer logging identifiers (``user_id``, ``conversation_id``, tool names) rather than raw user message text.
 
-Agent-level metrics (turn latency/error rate, tool ok/error, BigQuery outcomes including empty/exhausted, model retries, report delete confirm/cancel, auth failures) are exposed via Prometheus at ``GET /metrics`` from a dedicated metrics module. In production, scrape that endpoint into Cloud Monitoring (Managed Prometheus) or an equivalent; the metric names stay stable when the scrape target moves.
+Mutating user actions — report creation and confirmed deletion, Golden set candidate accept/reject, persona activation — are also written to the PostgreSQL **audit log** (actor, action, resource, timestamp) so they can be reconstructed independently of application logs and traces.
+
+Agent-level metrics (turn latency/error rate, tool ok/error, SQL query outcomes including empty/exhausted, model retries, report delete confirm/cancel, auth failures) are exposed via Prometheus at ``GET /metrics`` from a dedicated metrics module. That endpoint is scraped into **Cloud Monitoring** (Managed Prometheus).
 
 ---
 
@@ -358,7 +350,31 @@ New capabilities (charts, email, extra sources) should attach as tools or servic
 
 ---
 
-## 9. Trade-offs, risks, and requirement coverage
+## 9. Service inventory
+
+| Part | Service to provision |
+| --- | --- |
+| Web UI (chat, Golden review, persona editing) | **Firebase App Hosting** (Next.js) |
+| BFF (auth, request logging, routing — only public ingress) | **Cloud Run** |
+| Chatbot backend (Starlette, SSE, LangGraph loop) | **Cloud Run** |
+| Golden ingestion / indexing | **Cloud Run** |
+| Golden ingest queue | **Pub/Sub** |
+| Chat / analysis LLM | **Vertex AI** — `gemini-3.8-flash` (Pro as optional upgrade) |
+| Embeddings | **Vertex AI** — `gemini-embedding-001` |
+| Analytical facts (read-only) | **SQL data store provided by the client** |
+| App state, entitlements, personas, Golden vectors | **Cloud SQL PostgreSQL** with **pgvector** |
+| Report HTML artifacts | **Cloud Storage** |
+| Initial Golden corpus | Object store / data lake (ingested into Postgres) |
+| Identity & least-privilege access | **Cloud IAM** (service accounts) |
+| Agent traces and eval experiments | **LangSmith** |
+| LLM-as-judge | **ChatGPT 5.1 sol** |
+| Application / edge logs | **Cloud Logging** (Python Cloud Logging handler) |
+| Agent metrics scrape | **Cloud Monitoring** (Managed Prometheus) against `/metrics` |
+| Database backups | **Cloud SQL** automated backups |
+
+---
+
+## 10. Trade-offs, risks, and requirement coverage
 
 **Risk — unauthorized product leakage via model-written SQL.** The LLM may emit SQL that omits brand filters, joins through unscoped tables, or otherwise returns rows outside the caller's entitlements (e.g. a Calvin Klein user seeing Levi's revenue). Prompt instructions alone are not a control. **Remediation:** every query passes through deterministic application SQL validation before SQL — allowlisted read-only statements and tables only, then entitlement scope is **injected/rewritten** in code from the PostgreSQL mapping (not trusted from the model). Invalid or unscoped SQL is rejected; the agent may repair within budget, but execution never bypasses the guard. Least-privilege SQL credentials, bytes/row caps, and brand-auth evals further reduce residual risk.
 
@@ -366,10 +382,12 @@ New capabilities (charts, email, extra sources) should attach as tools or servic
 | Trade-off | Default choice | Alternative |
 | --- | --- | --- |
 | Web UI hosting | Firebase App Hosting (GCP-aligned) | **Vercel** if the client already runs Next.js there — same BFF/API contract; only the frontend deploy target changes |
-| Compute | **Cloud Run** (managed scale, less ops) | **Kubernetes** if custom networking/sidecars/multi-service scheduling are required — higher infra and operational complexity |
+| Compute | **Cloud Run** (managed scale, less ops) | **Kubernetes** is a future option only if concrete requirements (custom networking, sidecars, multi-service scheduling) justify the operational overhead. Keep this option in mind during implementation. |
 | Chat model | **`gemini-3.8-flash`** — lower cost and lower latency | Gemini **Pro** for harder analyses — higher quality at higher cost and slower responses |
 
 **Open question:** backup **RPO/RTO** targets once the client sets acceptable data-loss and recovery-time budgets (daily Cloud SQL backups are the baseline until then).
+
+**Future consideration — analysis continuing after SSE disconnect.** If product later needs long-running analyses to outlive the HTTP/SSE connection, add a durable worker (Cloud Run job / worker + queue) so work continues, progress is persisted, and the client resumes from chat history. Until then, analysis runs in the chatbot request/SSE path.
 
 | Assignment requirement | Design section |
 | --- | --- |
@@ -379,12 +397,12 @@ New capabilities (charts, email, extra sources) should attach as tools or servic
 | User-level preference learning | 6 |
 | System-level learning loop | 6 |
 | Resilience and graceful error handling | 3.1, 8 |
-| Quality assurance / evaluation | 9 |
-| Observability and debugging | 9 |
-| Persona management without redeploy | 7 |
-| Architecture, services, and data stores | 2, 4 |
-| Technology rationale | 2 |
-| Extensibility (new tools / sources) | 7 |
-| Dataset: `thelook_ecommerce` four tables | 1, 3.1, 5 |
+| Quality assurance / evaluation | 7 |
+| Observability and debugging | 7 |
+| Persona management without redeploy | 2.4 |
+| Architecture, services, and data stores | 3, 4, 9 |
+| Technology rationale | 3 |
+| Extensibility (new tools / sources) | 8 |
+| Client analytical SQL store (read-only) | 1, 4, 5, 9 |
 | Requirement coverage / open items | 10 |
 
