@@ -2,6 +2,8 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from chatbot.integrations.bigquery.tables import BQ_DATASET_FQN
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -25,12 +27,12 @@ class Settings(BaseSettings):
     gemini_timeout_seconds: float = 120.0
     gcp_project: str = "ops-test-piotr"
     google_application_credentials: str = ""
-    bq_dataset: str = "bigquery-public-data.thelook_ecommerce"
+    bq_dataset: str = BQ_DATASET_FQN
     bq_max_rows: int = 100
     bq_max_bytes_billed: int = 1_000_000_000
     bq_timeout_seconds: float = 60.0
     bq_empty_repair_attempts: int = 2
-    agent_recursion_limit: int = 25
+    agent_recursion_limit: int = 50
     jwt_secret: str = "dev-jwt-secret-change-me"
     reports_dir: str = "output/reports"
     logs_dir: str = "output/logs"

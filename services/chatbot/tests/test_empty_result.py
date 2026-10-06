@@ -7,6 +7,7 @@ from chatbot.integrations.bigquery.empty_result import (
     reset_empty_attempts,
     restore_empty_attempts,
 )
+from chatbot.integrations.bigquery.tables import ORDERS
 from chatbot.integrations.bigquery.tools import execute_run_sql
 
 
@@ -14,7 +15,7 @@ def test_format_empty_result_requires_repair_then_exhausts() -> None:
     first = format_empty_result(
         attempt=1,
         max_attempts=2,
-        sql="SELECT 1 FROM bigquery-public-data.thelook_ecommerce.orders WHERE 1=0",
+        sql=f"SELECT 1 FROM {ORDERS} WHERE 1=0",
     )
     assert "status: empty_result" in first
     assert "repair_required: true" in first
@@ -48,10 +49,7 @@ def test_run_sql_empty_returns_structured_repair() -> None:
                 "rows": [],
             },
         ):
-            text = execute_run_sql(
-                "SELECT order_id FROM "
-                "bigquery-public-data.thelook_ecommerce.orders WHERE 1=0"
-            )
+            text = execute_run_sql(f"SELECT order_id FROM {ORDERS} WHERE 1=0")
         assert "status: empty_result" in text
         assert "repair_required: true" in text
         assert get_empty_attempts() == 1
@@ -65,10 +63,8 @@ def test_run_sql_empty_returns_structured_repair() -> None:
                 "rows": [],
             },
         ):
-            text2 = execute_run_sql(
-                "SELECT order_id FROM "
-                "bigquery-public-data.thelook_ecommerce.orders WHERE 1=0"
-            )
+            text2 = execute_run_sql(f"SELECT order_id FROM {ORDERS} WHERE 1=0")
+
         assert "empty_result_exhausted" in text2
     finally:
         restore_empty_attempts(token)

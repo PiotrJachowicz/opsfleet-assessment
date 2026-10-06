@@ -7,9 +7,7 @@ from sqlglot import exp
 
 from chatbot.auth import AuthContext
 from chatbot.integrations.bigquery.sql_guard import SqlGuardError, _normalize_table_name
-
-PRODUCTS = "bigquery-public-data.thelook_ecommerce.products"
-ORDER_ITEMS = "bigquery-public-data.thelook_ecommerce.order_items"
+from chatbot.integrations.bigquery.tables import ORDER_ITEMS, PRODUCTS
 
 
 def _brand_in_predicate(brands: tuple[str, ...]) -> exp.Expression:

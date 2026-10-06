@@ -1,5 +1,5 @@
 from chatbot.config import Settings
-from chatbot.tracing import configure_langsmith
+from chatbot.observability import configure_langsmith
 
 
 def test_configure_langsmith_noop_without_key() -> None:
@@ -15,6 +15,6 @@ def test_configure_langsmith_noop_when_disabled() -> None:
     configure_langsmith(
         Settings(
             langsmith_tracing=False,
-            langsmith_api_key="",
+            langsmith_api_key="abc",
         )
     )

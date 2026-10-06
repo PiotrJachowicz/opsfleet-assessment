@@ -13,10 +13,9 @@ from chatbot.auth import AuthError, auth_context_from_authorization
 from chatbot.chat import get_owned_conversation, stream_chat_turn
 from chatbot.config import get_settings
 from chatbot.db import SessionLocal
-from chatbot.logging_setup import configure_logging
 from chatbot.middleware.metrics import metrics_response, record_auth_failure
 from chatbot.models import ChatRequest
-from chatbot.tracing import configure_langsmith
+from chatbot.observability import configure_langsmith, configure_logging
 
 logger = logging.getLogger(__name__)
 

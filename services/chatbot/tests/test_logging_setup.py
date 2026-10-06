@@ -2,7 +2,7 @@ import logging
 from pathlib import Path
 
 from chatbot.config import Settings
-from chatbot.logging_setup import configure_logging
+from chatbot.observability import configure_logging
 
 
 def test_configure_logging_writes_rotating_file(tmp_path: Path) -> None:

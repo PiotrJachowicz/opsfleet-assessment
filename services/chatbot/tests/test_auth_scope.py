@@ -6,6 +6,7 @@ from chatbot.auth import (
 )
 from chatbot.integrations.bigquery.brand_scope import apply_brand_scope
 from chatbot.integrations.bigquery.sql_guard import validate_readonly_sql
+from chatbot.integrations.bigquery.tables import ORDER_ITEMS, PRODUCTS
 
 SECRET = "test-jwt-secret-at-least-32-bytes!!"
 
@@ -36,9 +37,7 @@ def test_bad_secret_rejected() -> None:
 
 def test_products_and_order_items_are_rewritten() -> None:
     auth = AuthContext(user_id="brand-levis", brands=("Levi's",))
-    sql = validate_readonly_sql(
-        "SELECT SUM(sale_price) FROM `bigquery-public-data.thelook_ecommerce.order_items`"
-    )
+    sql = validate_readonly_sql(f"SELECT SUM(sale_price) FROM `{ORDER_ITEMS}`")
     scoped = apply_brand_scope(sql, auth)
     assert "Levi" in scoped
     assert "product_id IN" in scoped.replace("\n", " ")
@@ -47,7 +46,5 @@ def test_products_and_order_items_are_rewritten() -> None:
 
 def test_admin_sql_unchanged() -> None:
     auth = AuthContext(user_id="admin", brands=("*",))
-    sql = validate_readonly_sql(
-        "SELECT brand FROM `bigquery-public-data.thelook_ecommerce.products`"
-    )
+    sql = validate_readonly_sql(f"SELECT brand FROM `{PRODUCTS}`")
     assert apply_brand_scope(sql, auth) == sql

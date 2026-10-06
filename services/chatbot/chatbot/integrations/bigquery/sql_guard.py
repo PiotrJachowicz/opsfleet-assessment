@@ -5,13 +5,10 @@ import re
 import sqlglot
 from sqlglot import exp
 
-ALLOWED_TABLES = frozenset(
-    {
-        "bigquery-public-data.thelook_ecommerce.orders",
-        "bigquery-public-data.thelook_ecommerce.order_items",
-        "bigquery-public-data.thelook_ecommerce.products",
-        "bigquery-public-data.thelook_ecommerce.users",
-    }
+from chatbot.integrations.bigquery.tables import (
+    ALLOWED_TABLES,
+    BQ_DATASET,
+    BQ_PROJECT,
 )
 
 _FORBIDDEN = re.compile(
@@ -46,8 +43,8 @@ def _normalize_table_name(table: exp.Table) -> str | None:
     ]
     if len(parts) == 3:
         return ".".join(parts)
-    if len(parts) == 2 and parts[0] == "thelook_ecommerce":
-        return f"bigquery-public-data.{parts[0]}.{parts[1]}"
+    if len(parts) == 2 and parts[0] == BQ_DATASET:
+        return f"{BQ_PROJECT}.{parts[0]}.{parts[1]}"
     return ".".join(parts) if parts else None
 
 
@@ -82,7 +79,7 @@ def validate_readonly_sql(sql: str) -> str:
 
     if not referenced:
         raise SqlGuardError(
-            "Query must reference at least one allowed thelook_ecommerce table "
+            f"Query must reference at least one allowed {BQ_DATASET} table "
             "using a fully-qualified name"
         )
 

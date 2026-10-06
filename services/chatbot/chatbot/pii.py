@@ -12,12 +12,10 @@ from typing import Any
 EMAIL_TOKEN = "EMAIL MASKED"
 PHONE_TOKEN = "PHONE MASKED"
 
-# Practical email matcher; not RFC-perfect, good enough for scrubbing.
 EMAIL_RE = re.compile(
     r"\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b",
 )
 
-# Phone-like: requires +country or at least one separator so bare order IDs stay.
 PHONE_RE = re.compile(
     r"(?<!\w)(?:"
     r"\+[\d\-().\s]{8,}\d|"

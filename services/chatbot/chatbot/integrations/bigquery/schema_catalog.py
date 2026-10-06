@@ -1,11 +1,19 @@
 """Static schema notes for thelook_ecommerce (assignment tables only)."""
 
-SCHEMA_TEXT = """
-Dataset: bigquery-public-data.thelook_ecommerce
+from chatbot.integrations.bigquery.tables import (
+    BQ_DATASET_FQN,
+    ORDER_ITEMS,
+    ORDERS,
+    PRODUCTS,
+    USERS,
+)
+
+SCHEMA_TEXT = f"""
+Dataset: {BQ_DATASET_FQN}
 Always use fully-qualified table names.
 
 tables:
-  bigquery-public-data.thelook_ecommerce.orders
+  {ORDERS}
     - order_id INT64
     - user_id INT64
     - status STRING
@@ -16,7 +24,7 @@ tables:
     - delivered_at TIMESTAMP
     - num_of_item INT64
 
-  bigquery-public-data.thelook_ecommerce.order_items
+  {ORDER_ITEMS}
     - id INT64
     - order_id INT64
     - user_id INT64
@@ -29,7 +37,7 @@ tables:
     - returned_at TIMESTAMP
     - sale_price FLOAT64
 
-  bigquery-public-data.thelook_ecommerce.products
+  {PRODUCTS}
     - id INT64
     - cost FLOAT64
     - category STRING
@@ -40,7 +48,7 @@ tables:
     - sku STRING
     - distribution_center_id INT64
 
-  bigquery-public-data.thelook_ecommerce.users
+  {USERS}
     - id INT64
     - first_name STRING
     - last_name STRING

@@ -1,8 +1,6 @@
-"""Prometheus application metrics (separate from business logic).
+"""Prometheus application metrics.
 
-Highest-value agent metrics for dashboards/alerts. LangSmith remains the
-deep-dive trace store; these counters/histograms answer "is it failing / how
-often / how slow" without cluttering call sites.
+Highest-value agent metrics for dashboards/alerts.
 """
 
 from __future__ import annotations
@@ -20,7 +18,6 @@ from prometheus_client import (
 from starlette.requests import Request
 from starlette.responses import Response
 
-# Dedicated registry so tests can isolate and the /metrics handler stays explicit.
 REGISTRY = CollectorRegistry()
 
 CHAT_TURNS = Counter(

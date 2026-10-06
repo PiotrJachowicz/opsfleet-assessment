@@ -71,12 +71,13 @@ Try: `What were the top 5 product brands by revenue last year?`
 
 ## Auth (JWT brand scopes)
 
-**Production assumption:** the frontend sends a JWT whose claims include the
-user's brand scopes; the agent enforces those scopes in SQL (not only in the
-prompt).
+Brand/product access is enforced in SQL (not only in the prompt): filters are
+injected into `products` and `order_items` queries before BigQuery runs.
 
-**Prototype:** the CLI mints HS256 JWTs for three presets (shared `JWT_SECRET`
-must match between `apps/chat-cli/.env` and `services/chatbot/.env`):
+**Prototype simplification:** allowed brands are taken from the JWT `brands`
+claim only. There is **no** user→entitlement mapping lookup in Postgres. The CLI
+mints HS256 JWTs for three presets (shared `JWT_SECRET` must match between
+`apps/chat-cli/.env` and `services/chatbot/.env`):
 
 | Preset | Scopes |
 |--------|--------|
@@ -84,8 +85,10 @@ must match between `apps/chat-cli/.env` and `services/chatbot/.env`):
 | `calvin` | `Calvin Klein` only |
 | `levis` | `Levi's` only |
 
-Brand filters are injected deterministically into `products` and `order_items`
-queries before BigQuery runs.
+**Production (HLD):** authenticate via JWT, then resolve the user's product
+entitlements from a mapping in PostgreSQL and apply that set in the same
+deterministic SQL rewriter. The prototype skips the DB mapping step so local
+demo presets stay simple.
 
 ## Saved reports
 

@@ -5,6 +5,7 @@ import json
 import sys
 import threading
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -89,6 +90,59 @@ def _check_health(client: httpx.Client, base_url: str) -> None:
         raise SystemExit(1)
 
 
+def _handle_thinking(data: str, current_section: str | None) -> str:
+    if current_section != "thinking":
+        if current_section is not None:
+            print()
+        print("Thinking> ", end="", flush=True)
+    print(data, end="", flush=True)
+    return "thinking"
+
+
+def _handle_token(data: str, current_section: str | None) -> str:
+    if current_section != "token":
+        if current_section is not None:
+            print()
+        print("Assistant> ", end="", flush=True)
+    print(data, end="", flush=True)
+    return "token"
+
+
+def _handle_tool(data: str, current_section: str | None) -> None:
+    if current_section is not None:
+        print()
+    try:
+        payload = json.loads(data)
+    except json.JSONDecodeError:
+        print(f"Tool> {data}", flush=True)
+        return
+    name = payload.get("name", "tool")
+    status = payload.get("status", "")
+    if status == "start":
+        detail = payload.get("input") or ""
+        print(f"Tool> {name} start {detail}", flush=True)
+    else:
+        detail = payload.get("output_preview") or ""
+        print(f"Tool> {name} end {detail}", flush=True)
+
+
+def _handle_error(data: str, current_section: str | None) -> None:
+    try:
+        detail = json.loads(data).get("detail", data)
+    except json.JSONDecodeError:
+        detail = data
+    if current_section is not None:
+        print()
+    print(f"Error: {detail}", file=sys.stderr)
+
+
+def _handle_done(data: str, conversation_id: str | None) -> str | None:
+    try:
+        return json.loads(data).get("conversation_id", conversation_id)
+    except json.JSONDecodeError:
+        return conversation_id
+
+
 def _send_chat(
     client: httpx.Client,
     *,
@@ -143,52 +197,17 @@ def _send_chat(
                 spinner.stop()
 
                 if event == "thinking":
-                    if current_section != "thinking":
-                        if current_section is not None:
-                            print()
-                        print("Thinking> ", end="", flush=True)
-                        current_section = "thinking"
-                    print(data, end="", flush=True)
+                    current_section = _handle_thinking(data, current_section)
                 elif event == "token":
-                    if current_section != "token":
-                        if current_section is not None:
-                            print()
-                        print("Assistant> ", end="", flush=True)
-                        current_section = "token"
-                    print(data, end="", flush=True)
+                    current_section = _handle_token(data, current_section)
                 elif event == "tool":
-                    if current_section is not None:
-                        print()
-                        current_section = None
-                    try:
-                        payload = json.loads(data)
-                    except json.JSONDecodeError:
-                        print(f"Tool> {data}", flush=True)
-                    else:
-                        name = payload.get("name", "tool")
-                        status = payload.get("status", "")
-                        if status == "start":
-                            detail = payload.get("input") or ""
-                            print(f"Tool> {name} start {detail}", flush=True)
-                        else:
-                            detail = payload.get("output_preview") or ""
-                            print(f"Tool> {name} end {detail}", flush=True)
+                    _handle_tool(data, current_section)
+                    current_section = None
                 elif event == "error":
-                    try:
-                        detail = json.loads(data).get("detail", data)
-                    except json.JSONDecodeError:
-                        detail = data
-                    if current_section is not None:
-                        print()
-                    print(f"Error: {detail}", file=sys.stderr)
+                    _handle_error(data, current_section)
                     current_section = None
                 elif event == "done":
-                    try:
-                        conversation_id = json.loads(data).get(
-                            "conversation_id", conversation_id
-                        )
-                    except json.JSONDecodeError:
-                        pass
+                    conversation_id = _handle_done(data, conversation_id)
             if current_section is not None:
                 print()
     finally:
@@ -203,6 +222,62 @@ def _print_identity(preset_key: str) -> None:
     print(f"User:   {preset_key} ({profile['name']})  brands=[{brands}]")
 
 
+@dataclass
+class _CliSession:
+    preset_key: str
+    token: str
+    user_id: str
+    conversation_id: str | None
+    jwt_secret: str
+
+
+def _cmd_quit() -> None:
+    print("Bye.")
+
+
+def _cmd_new(session: _CliSession) -> None:
+    session.conversation_id = None
+    print("Started a new conversation.")
+
+
+def _cmd_whoami(session: _CliSession) -> None:
+    _print_identity(session.preset_key)
+
+
+def _cmd_user(session: _CliSession, user_input: str) -> None:
+    parts = user_input.split(maxsplit=1)
+    if len(parts) != 2 or parts[1] not in PRESET_USERS:
+        print("Usage: /user <admin|calvin|levis>")
+        return
+    session.preset_key = parts[1]
+    session.token = mint_access_token(
+        preset_key=session.preset_key, secret=session.jwt_secret
+    )
+    session.user_id = str(PRESET_USERS[session.preset_key]["sub"])
+    session.conversation_id = None
+    print("Switched identity; new conversation.")
+    _print_identity(session.preset_key)
+
+
+def _cmd_chat(
+    session: _CliSession,
+    client: httpx.Client,
+    *,
+    base_url: str,
+    message: str,
+) -> None:
+    session.conversation_id = _send_chat(
+        client,
+        base_url=base_url,
+        token=session.token,
+        user_id=session.user_id,
+        message=message,
+        conversation_id=session.conversation_id,
+    )
+    if session.conversation_id:
+        print(f"(conversation_id={session.conversation_id})")
+
+
 def main() -> None:
     settings = get_settings()
     base_url = settings.chat_base_url
@@ -215,16 +290,20 @@ def main() -> None:
         )
         raise SystemExit(1)
 
-    conversation_id: str | None = None
-    token = mint_access_token(preset_key=preset_key, secret=settings.jwt_secret)
-    user_id = PRESET_USERS[preset_key]["sub"]
+    session = _CliSession(
+        preset_key=preset_key,
+        token=mint_access_token(preset_key=preset_key, secret=settings.jwt_secret),
+        user_id=str(PRESET_USERS[preset_key]["sub"]),
+        conversation_id=None,
+        jwt_secret=settings.jwt_secret,
+    )
 
     with httpx.Client(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
         _check_health(client, base_url)
 
         print("Chatbot CLI")
         print(f"Server: {base_url}")
-        _print_identity(preset_key)
+        _print_identity(session.preset_key)
         print("Commands: /new  /user <admin|calvin|levis>  /whoami  /quit")
         print("Presets:")
         print(format_presets())
@@ -240,40 +319,18 @@ def main() -> None:
             if not user_input:
                 continue
             if user_input in {"/quit", "/exit", "/q"}:
-                print("Bye.")
+                _cmd_quit()
                 return
             if user_input == "/new":
-                conversation_id = None
-                print("Started a new conversation.")
+                _cmd_new(session)
                 continue
             if user_input == "/whoami":
-                _print_identity(preset_key)
+                _cmd_whoami(session)
                 continue
             if user_input.startswith("/user"):
-                parts = user_input.split(maxsplit=1)
-                if len(parts) != 2 or parts[1] not in PRESET_USERS:
-                    print("Usage: /user <admin|calvin|levis>")
-                    continue
-                preset_key = parts[1]
-                token = mint_access_token(
-                    preset_key=preset_key, secret=settings.jwt_secret
-                )
-                user_id = PRESET_USERS[preset_key]["sub"]
-                conversation_id = None
-                print("Switched identity; new conversation.")
-                _print_identity(preset_key)
+                _cmd_user(session, user_input)
                 continue
-
-            conversation_id = _send_chat(
-                client,
-                base_url=base_url,
-                token=token,
-                user_id=user_id,
-                message=user_input,
-                conversation_id=conversation_id,
-            )
-            if conversation_id:
-                print(f"(conversation_id={conversation_id})")
+            _cmd_chat(session, client, base_url=base_url, message=user_input)
 
 
 if __name__ == "__main__":

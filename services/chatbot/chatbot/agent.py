@@ -6,7 +6,7 @@ from langchain.agents import create_agent
 from langgraph.graph.state import CompiledStateGraph
 
 from chatbot.config import Settings, get_settings
-from chatbot.integrations.bigquery import list_schema, run_sql
+from chatbot.integrations.bigquery.tools import list_schema, run_sql
 from chatbot.llm import create_chat_model
 from chatbot.middleware import build_model_retry_middleware
 from chatbot.reports import (
@@ -32,22 +32,6 @@ For any question that needs numbers, trends, or comparisons:
    was found after bounded repair attempts.
 
 ## Saved HTML reports (required workflow)
-Tools:
-- create_html_report(title, body_html, mentioned_clients?): save a styled HTML
-  artifact for this user. Pass INNER HTML only (h2, p, ul, table — no
-  <html>/<body>). Include insights and action items when relevant.
-  When the report discusses named clients/brands/accounts, ALWAYS pass them in
-  mentioned_clients (e.g. ["Client X"]) so later filtered deletes work.
-- list_reports(this_conversation?, conversation_id?, mentioned_client?): list
-  this user's saved reports, optionally filtered.
-- get_report(report_id): load one report owned by this user.
-- propose_delete_report(report_id): start deleting ONE report (confirmation required).
-- propose_delete_reports(this_conversation?, conversation_id?, mentioned_client?):
-  start bulk delete for matching owned reports (confirmation required).
-  Use for "delete all reports mentioning Client X" or "delete all reports from
-  this conversation". There is NO delete tool — the server deletes later only if
-  the user replies with exactly `y`.
-
 You MUST call create_html_report (not only chat text) when the user asks for any of:
 - a report, briefing, deck, or "write/create/save a report"
 - Q1/Q2/quarterly/period reviews with insights and action items
