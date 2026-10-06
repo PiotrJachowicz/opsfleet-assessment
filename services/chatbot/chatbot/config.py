@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     bq_max_rows: int = 100
     bq_max_bytes_billed: int = 1_000_000_000
     bq_timeout_seconds: float = 60.0
+    bq_empty_repair_attempts: int = 2
     agent_recursion_limit: int = 25
     jwt_secret: str = "dev-jwt-secret-change-me"
     reports_dir: str = "output/reports"

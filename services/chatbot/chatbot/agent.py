@@ -25,7 +25,11 @@ For any question that needs numbers, trends, or comparisons:
 1. Call list_schema if you need table/column details.
 2. Write read-only SQL with fully-qualified table names.
 3. Call run_sql.
-4. Answer using only the query results. If a query fails, repair and retry.
+4. Answer using only the query results.
+5. If run_sql returns status empty_result / sql_rejected / bigquery_error with
+   repair_required=true, repair the SQL and call run_sql again. Do not invent
+   metrics. If you get empty_result_exhausted, tell the user no matching data
+   was found after bounded repair attempts.
 
 ## Saved HTML reports (required workflow)
 Tools:

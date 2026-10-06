@@ -54,6 +54,11 @@ Case **12** (`report_delete_bulk`) creates two Client X–tagged reports, calls
 `propose_delete_reports(mentioned_client=...)`, then confirms with `y`.
 Run with `EVAL_CASES=12` or `EVAL_CASES=report_delete_bulk`.
 
+Case **13** (`empty_result_repair`) asks for order rows in year 1800 (no data)
+so `run_sql` hits the empty-result repair path. Trace checks look for
+`empty_result` / a repair retry / exhaustion; the answer must not invent ids.
+Run with `EVAL_CASES=13` or `EVAL_CASES=empty_result_repair`.
+
 ## Judge model
 
 Default judge is the same Gemini family as the agent (`JUDGE_MODEL` /

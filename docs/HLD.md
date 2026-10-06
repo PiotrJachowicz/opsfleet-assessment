@@ -292,7 +292,7 @@ Persona/tone configuration cannot change security rules - those are deterministi
 
 Transient provided failures get limited retries with backoff. If the limit is exceeded, the conversation state is preserved and an error is shown, with manual retry possibility. 
 
-SQL errors can trigger a bounded SQL repair by the agent.
+SQL errors and empty result sets are detected in application code on the BigQuery tool path. The tool returns a structured ``repair_required`` (or ``empty_result_exhausted``) payload; the agent may rewrite and retry within a per-turn empty-result budget so costs stay bounded.
 
 TODO:
 

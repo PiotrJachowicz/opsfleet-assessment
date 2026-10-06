@@ -16,6 +16,10 @@ from chatbot.config import get_settings
 from chatbot.db import Conversation, Message, MessageRole
 from chatbot.middleware.pii import PiiStreamSanitizer, sanitize_pii
 from chatbot.models import ChatRequest
+from chatbot.integrations.bigquery.empty_result import (
+    reset_empty_attempts,
+    restore_empty_attempts,
+)
 from chatbot.reports.store import (
     reset_conversation_id,
     set_conversation_id,
@@ -124,10 +128,12 @@ async def stream_chat_turn(
     settings = get_settings()
     auth_token = set_auth_context(auth)
     convo_token = set_conversation_id(None)
+    empty_token = reset_empty_attempts()
     try:
         async for event in _stream_chat_turn_inner(session, request, settings):
             yield event
     finally:
+        restore_empty_attempts(empty_token)
         reset_conversation_id(convo_token)
         reset_auth_context(auth_token)
 

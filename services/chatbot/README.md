@@ -25,6 +25,13 @@ The next user message is inspected by the server for an exact `y`; only then are
 matching reports removed. Production should replace this chat `y` gate with a UI
 confirmation flow — documented in the root `readme.md`.
 
+## Empty / failed SQL repair
+
+`run_sql` detects zero-row results and SQL/BQ failures in application code and
+returns a structured `status` / `repair_required` payload. Empty results are
+budgeted per chat turn (`BQ_EMPTY_REPAIR_ATTEMPTS`, default 2) so the agent can
+self-correct without unbounded BigQuery spend.
+
 ## Logging
 
 Uses the standard library ``logging`` package (no extra dependency).

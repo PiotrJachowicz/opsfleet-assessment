@@ -156,3 +156,23 @@ cases:
         eval: trace
       - "After the user reply y, did the conversation show that matching reports were deleted?"
       - "Did the agent avoid claiming the reports were already deleted before the y confirmation turn?"
+
+  - id: 13
+    category: empty_result_repair
+    question: >
+      List every order_id for orders created in calendar year 1800 (that year
+      has no data). Use a SELECT that returns order_id rows — do not use COUNT(*)
+      alone. If the first query returns no rows, repair filters/date logic and
+      retry once; if still empty, say clearly that no matching orders were found.
+      Do not invent order ids.
+    evaluation_questions:
+      - question: >
+          Did at least one run_sql tool end/output indicate an empty result
+          (e.g. status empty_result, empty_result_exhausted, or row_count 0)?
+        eval: trace
+      - question: >
+          After an empty result, did the agent either call run_sql again with a
+          repaired query OR reach empty_result_exhausted (bounded repair), rather
+          than inventing order ids with no further tool use?
+        eval: trace
+      - "Did the final answer state that no matching orders/data were found (or equivalent), without inventing specific order ids from 1800?"
