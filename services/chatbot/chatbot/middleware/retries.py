@@ -15,6 +15,7 @@ from langchain_core.exceptions import ModelError
 from langgraph.errors import GraphBubbleUp
 
 from chatbot.config import Settings
+from chatbot.middleware.metrics import record_model_retry
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +88,10 @@ class GeminiModelRetryMiddleware(ModelRetryMiddleware):
                 if not should_retry_exception(exc, self.retry_on):
                     raise
                 if attempt >= self.max_retries:
+                    record_model_retry("exhausted")
                     return self._handle_failure(exc, attempt + 1)
 
+                record_model_retry("retry")
                 delay = self._delay_for_attempt(attempt, exc)
                 logger.warning(
                     "Gemini model call failed (%s); retry %s/%s in %.1fs",
@@ -116,8 +119,10 @@ class GeminiModelRetryMiddleware(ModelRetryMiddleware):
                 if not should_retry_exception(exc, self.retry_on):
                     raise
                 if attempt >= self.max_retries:
+                    record_model_retry("exhausted")
                     return self._handle_failure(exc, attempt + 1)
 
+                record_model_retry("retry")
                 delay = self._delay_for_attempt(attempt, exc)
                 logger.warning(
                     "Gemini model call failed (%s); retry %s/%s in %.1fs",

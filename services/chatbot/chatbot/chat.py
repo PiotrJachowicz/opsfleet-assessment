@@ -14,6 +14,7 @@ from chatbot.agent import agent_config, get_analysis_agent
 from chatbot.auth import AuthContext, reset_auth_context, set_auth_context
 from chatbot.config import get_settings
 from chatbot.db import Conversation, Message, MessageRole
+from chatbot.middleware.metrics import ChatTurnTimer, record_tool_result
 from chatbot.middleware.pii import PiiStreamSanitizer, sanitize_pii
 from chatbot.models import ChatRequest
 from chatbot.integrations.bigquery.empty_result import (
@@ -129,10 +130,17 @@ async def stream_chat_turn(
     auth_token = set_auth_context(auth)
     convo_token = set_conversation_id(None)
     empty_token = reset_empty_attempts()
+    timer = ChatTurnTimer()
     try:
         async for event in _stream_chat_turn_inner(session, request, settings):
+            if event.get("event") == "error":
+                timer.mark("error")
             yield event
+    except asyncio.CancelledError:
+        timer.mark("cancelled")
+        raise
     finally:
+        timer.finish()
         restore_empty_attempts(empty_token)
         reset_conversation_id(convo_token)
         reset_auth_context(auth_token)
@@ -279,6 +287,7 @@ async def _stream_chat_turn_inner(
 
             elif kind == "on_tool_end":
                 tool_name = event.get("name") or "tool"
+                record_tool_result(tool_name, data.get("output"))
                 logger.info(
                     "chat tool end user_id=%s conversation_id=%s tool=%s",
                     request.user_id,

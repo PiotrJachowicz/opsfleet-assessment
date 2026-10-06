@@ -110,6 +110,12 @@ cannot confirm deletion itself. Any other reply cancels the pending delete.
 `output/` is gitignored (reports under `output/reports`, logs under `output/logs`).
 Run migrations after pull (`mise run migrate`).
 
+## Metrics
+
+`GET /metrics` exposes Prometheus counters/histograms (turn latency/errors, tool
+ok/error, BigQuery outcomes, Gemini retries, report delete lifecycle, auth
+failures). Implementation: `services/chatbot/chatbot/middleware/metrics.py`.
+
 ## Application logs
 
 Prototype logging uses Python’s stdlib ``logging`` with a rotating **file sink**

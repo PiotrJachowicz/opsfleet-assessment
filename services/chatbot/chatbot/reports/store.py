@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from chatbot.auth import get_auth_context
 from chatbot.config import get_settings
 from chatbot.db.models import Report
+from chatbot.middleware.metrics import record_report_delete
 from chatbot.middleware.pii import sanitize_pii
 
 _engine = None
@@ -364,6 +365,7 @@ def _stage_pending(user_id: str, reports: list[dict]) -> dict:
     ]
     count = len(refs)
     noun = "report" if count == 1 else "reports"
+    record_report_delete("proposed")
     return {
         "status": "awaiting_confirmation",
         "count": count,
@@ -468,6 +470,7 @@ def try_resolve_pending_deletion(user_id: str, message: str) -> dict | None:
             except Exception as exc:  # noqa: BLE001
                 errors.append(f"{ref.title} ({ref.report_id}): {exc}")
         if not deleted and errors:
+            record_report_delete("error")
             return {
                 "handled": True,
                 "outcome": "error",
@@ -479,6 +482,7 @@ def try_resolve_pending_deletion(user_id: str, message: str) -> dict | None:
         ]
         if errors:
             lines.append("Some deletes failed: " + "; ".join(errors))
+        record_report_delete("confirmed")
         return {
             "handled": True,
             "outcome": "deleted",
@@ -488,6 +492,7 @@ def try_resolve_pending_deletion(user_id: str, message: str) -> dict | None:
     # Any non-y reply while pending cancels; agent may still handle the message.
     clear_pending_deletion(user_id)
     titles = ", ".join(f"“{ref.title}” ({ref.report_id})" for ref in pending.reports)
+    record_report_delete("cancelled")
     return {
         "handled": False,
         "outcome": "cancelled",

@@ -14,6 +14,7 @@ from chatbot.chat import get_owned_conversation, stream_chat_turn
 from chatbot.config import get_settings
 from chatbot.db import SessionLocal
 from chatbot.logging_setup import configure_logging
+from chatbot.middleware.metrics import metrics_response, record_auth_failure
 from chatbot.models import ChatRequest
 from chatbot.tracing import configure_langsmith
 
@@ -40,6 +41,7 @@ async def chat(request: Request) -> JSONResponse | EventSourceResponse:
             settings.jwt_secret,
         )
     except AuthError as exc:
+        record_auth_failure()
         logger.warning("chat auth failed: %s", exc)
         return JSONResponse({"detail": str(exc)}, status_code=401)
 
@@ -103,6 +105,7 @@ app = Starlette(
     lifespan=lifespan,
     routes=[
         Route("/health", health, methods=["GET"]),
+        Route("/metrics", metrics_response, methods=["GET"]),
         Route("/chat", chat, methods=["POST"]),
     ],
 )

@@ -25,6 +25,23 @@ The next user message is inspected by the server for an exact `y`; only then are
 matching reports removed. Production should replace this chat `y` gate with a UI
 confirmation flow — documented in the root `readme.md`.
 
+## Metrics
+
+Prometheus metrics live in `chatbot/middleware/metrics.py` and are scraped at
+`GET /metrics`.
+
+| Metric | Labels | Meaning |
+|--------|--------|---------|
+| `chatbot_chat_turns_total` | `status` | Turn completions (`ok` / `error` / `cancelled`) |
+| `chatbot_chat_turn_duration_seconds` | — | Turn latency histogram |
+| `chatbot_tool_calls_total` | `tool`, `status` | Tool ok/error rate |
+| `chatbot_bq_queries_total` | `outcome` | `ok` / `empty` / `empty_exhausted` / `sql_rejected` / `bq_error` |
+| `chatbot_model_retries_total` | `result` | Gemini `retry` / `exhausted` |
+| `chatbot_report_deletes_total` | `outcome` | `proposed` / `confirmed` / `cancelled` / `error` |
+| `chatbot_auth_failures_total` | — | Invalid JWT |
+
+LangSmith remains the deep-dive trace store; these counters are for dashboards/alerts.
+
 ## Empty / failed SQL repair
 
 `run_sql` detects zero-row results and SQL/BQ failures in application code and

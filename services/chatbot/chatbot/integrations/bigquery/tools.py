@@ -13,6 +13,7 @@ from chatbot.integrations.bigquery.empty_result import (
 )
 from chatbot.integrations.bigquery.schema_catalog import SCHEMA_TEXT
 from chatbot.integrations.bigquery.sql_guard import SqlGuardError
+from chatbot.middleware.metrics import record_bq_outcome
 from chatbot.middleware.pii import sanitize_pii
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,7 @@ def execute_run_sql(sql: str) -> str:
     try:
         payload = run_query(sql)
     except SqlGuardError as exc:
+        record_bq_outcome("sql_rejected")
         return sanitize_pii(
             "status: sql_rejected\n"
             "repair_required: true\n"
@@ -49,6 +51,7 @@ def execute_run_sql(sql: str) -> str:
             "fully-qualified names) and call run_sql again."
         )
     except Exception as exc:  # noqa: BLE001 - return to agent for repair
+        record_bq_outcome("bq_error")
         return sanitize_pii(
             "status: bigquery_error\n"
             "repair_required: true\n"
@@ -66,6 +69,9 @@ def execute_run_sql(sql: str) -> str:
             attempt,
             max_attempts,
         )
+        record_bq_outcome(
+            "empty_exhausted" if attempt >= max_attempts else "empty"
+        )
         return sanitize_pii(
             format_empty_result(
                 attempt=attempt,
@@ -74,6 +80,7 @@ def execute_run_sql(sql: str) -> str:
             )
         )
 
+    record_bq_outcome("ok")
     return rows_to_tool_text(payload)
 
 

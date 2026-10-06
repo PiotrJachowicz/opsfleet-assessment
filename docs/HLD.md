@@ -217,6 +217,8 @@ flowchart TB
         Sanitized traces, debugging, evaluations"]
         CloudLogging["GCP Cloud Logging
         Application logs (prod sink)"]
+        Metrics["Prometheus metrics
+        /metrics → Cloud Monitoring"]
     end
 
     UI -->|"Authenticated requests"| Backend
@@ -248,6 +250,7 @@ flowchart TB
     Ingestion -->|"PII-safe ingestion traces"| LangSmith
     Backend -->|"Application logs"| CloudLogging
     Ingestion -->|"Application logs"| CloudLogging
+    Backend -->|"Scrape /metrics"| Metrics
 ```
 
 **Model strategy:** Flash is the default chat model as an optimized tradeoff between speed, quality and price. Pro is available as a choice for complex analysis. Both models are available as hosted Vertex APIs and exact model IDs are configurable via environment variables. Embeddings use `gemini-embedding-001` as default model (configurable via environment as well) at 768 dimensions, subject to retrieval evaluation.
@@ -323,6 +326,8 @@ For algorithmic parts of the system, unit tests and end to end tests will be imp
 Live agent traces go to managed LangSmith. Trace payloads must remain PII-safe (email and phone scrubbed) before export.
 
 Application logs (request/auth failures, turn lifecycle, tool start/end, retries, unhandled errors) use Python ``logging``. Production ships them to **GCP Cloud Logging** via the Cloud Run logging integration (structured logs on stdout) or an explicit Cloud Logging handler. The prototype keeps the same logger calls but attaches a rotating **file sink** at ``output/logs/chatbot.log`` so local debugging does not depend on GCP. Prefer logging identifiers (``user_id``, ``conversation_id``, tool names) rather than raw user message text.
+
+Agent-level metrics (turn latency/error rate, tool ok/error, BigQuery outcomes including empty/exhausted, model retries, report delete confirm/cancel, auth failures) are exposed via Prometheus at ``GET /metrics`` from a dedicated metrics module. In production, scrape that endpoint into Cloud Monitoring (Managed Prometheus) or an equivalent; the metric names stay stable when the scrape target moves.
 
 ---
 
