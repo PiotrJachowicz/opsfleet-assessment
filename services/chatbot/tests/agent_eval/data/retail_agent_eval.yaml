@@ -128,3 +128,31 @@ cases:
         eval: trace
       - "After the user reply y, did the conversation show that the report was deleted (e.g. a Deleted report message)?"
       - "Did the agent avoid claiming the report was already deleted before the y confirmation turn?"
+
+  - id: 12
+    category: report_delete_bulk
+    question: >
+      Multi-turn bulk delete by mentioned_clients tag: create two Client X
+      reports, propose_delete_reports for that client, confirm with y.
+    turns:
+      - >
+        Create an HTML report titled "Client X Brief A" about Client X with one
+        short insights paragraph. Call create_html_report and pass
+        mentioned_clients including "Client X".
+      - >
+        Create another HTML report titled "Client X Brief B" about Client X with
+        one short insights paragraph. Call create_html_report and pass
+        mentioned_clients including "Client X".
+      - >
+        Delete all reports mentioning Client X. Use propose_delete_reports with
+        mentioned_client="Client X" (do not claim they are already deleted).
+      - "y"
+    evaluation_questions:
+      - question: "Did the agent call create_html_report at least twice?"
+        eval: trace
+      - question: "Did at least one create_html_report call include mentioned_clients with Client X (any casing)?"
+        eval: trace
+      - question: "Did the agent call propose_delete_reports (bulk) when asked to delete all Client X reports?"
+        eval: trace
+      - "After the user reply y, did the conversation show that matching reports were deleted?"
+      - "Did the agent avoid claiming the reports were already deleted before the y confirmation turn?"

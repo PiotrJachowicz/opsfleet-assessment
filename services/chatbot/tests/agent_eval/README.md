@@ -50,6 +50,10 @@ churn-like cancelled/return spike, and a Q1 report with Q2 actions. Filter with
 Case **11** (`report_delete`) is multi-turn: create report → propose delete →
 confirm with exact `y`. Run with `EVAL_CASES=11` or `EVAL_CASES=report_delete`.
 
+Case **12** (`report_delete_bulk`) creates two Client X–tagged reports, calls
+`propose_delete_reports(mentioned_client=...)`, then confirms with `y`.
+Run with `EVAL_CASES=12` or `EVAL_CASES=report_delete_bulk`.
+
 ## Judge model
 
 Default judge is the same Gemini family as the agent (`JUDGE_MODEL` /

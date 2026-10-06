@@ -29,10 +29,28 @@ _pending_deletions: dict[str, "PendingDeletion"] = {}
 
 
 @dataclass(frozen=True)
-class PendingDeletion:
+class PendingReportRef:
     report_id: uuid.UUID
     title: str
     file_path: str
+
+
+@dataclass(frozen=True)
+class PendingDeletion:
+    reports: tuple[PendingReportRef, ...]
+
+    @property
+    def report_id(self) -> uuid.UUID:
+        """Back-compat for single-report pending deletes."""
+        return self.reports[0].report_id
+
+    @property
+    def title(self) -> str:
+        return self.reports[0].title
+
+    @property
+    def file_path(self) -> str:
+        return self.reports[0].file_path
 
 
 def set_conversation_id(conversation_id: uuid.UUID | None):
@@ -79,6 +97,26 @@ def _require_user_id() -> str:
 def _slug(title: str) -> str:
     cleaned = re.sub(r"[^a-zA-Z0-9]+", "-", title.strip().lower()).strip("-")
     return (cleaned or "report")[:60]
+
+
+def normalize_mentioned_clients(clients: list[str] | None) -> list[str]:
+    """Strip, sanitize, lowercase, and de-dupe while preserving first-seen order."""
+    if not clients:
+        return []
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in clients:
+        if raw is None:
+            continue
+        cleaned = sanitize_pii(str(raw).strip())
+        if not cleaned:
+            continue
+        key = cleaned.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
 
 
 def render_report_html(*, title: str, body_html: str, user_label: str) -> str:
@@ -194,12 +232,35 @@ def render_report_html(*, title: str, body_html: str, user_label: str) -> str:
 """
 
 
-def create_report(*, title: str, body_html: str) -> dict:
+def _report_to_dict(row: Report, *, include_html: bool = False) -> dict:
+    payload = {
+        "report_id": str(row.id),
+        "title": row.title,
+        "file_path": row.file_path,
+        "conversation_id": str(row.conversation_id) if row.conversation_id else None,
+        "mentioned_clients": list(row.mentioned_clients or []),
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+    if include_html:
+        path = Path(row.file_path)
+        if not path.is_file():
+            raise FileNotFoundError(f"report file missing: {path}")
+        payload["html"] = path.read_text(encoding="utf-8")
+    return payload
+
+
+def create_report(
+    *,
+    title: str,
+    body_html: str,
+    mentioned_clients: list[str] | None = None,
+) -> dict:
     user_id = _require_user_id()
     auth = get_auth_context()
     user_label = (auth.name if auth and auth.name else user_id) or user_id
     report_id = uuid.uuid4()
     safe_title = sanitize_pii(title.strip()) or "Untitled report"
+    clients = normalize_mentioned_clients(mentioned_clients)
     filename = f"{_slug(safe_title)}-{report_id.hex[:8]}.html"
     path = _reports_dir() / filename
     html = render_report_html(
@@ -215,6 +276,7 @@ def create_report(*, title: str, body_html: str) -> dict:
             title=safe_title,
             file_path=str(path.resolve()),
             conversation_id=conversation_id,
+            mentioned_clients=clients,
         )
         session.add(row)
         session.commit()
@@ -224,27 +286,44 @@ def create_report(*, title: str, body_html: str) -> dict:
         "report_id": str(report_id),
         "title": safe_title,
         "file_path": str(path.resolve()),
+        "conversation_id": str(conversation_id) if conversation_id else None,
+        "mentioned_clients": clients,
         "created_at": created_at.isoformat() if created_at else None,
     }
 
 
-def list_reports_for_user() -> list[dict]:
+def list_reports_for_user(
+    *,
+    conversation_id: str | None = None,
+    this_conversation: bool = False,
+    mentioned_client: str | None = None,
+) -> list[dict]:
     user_id = _require_user_id()
+    stmt = select(Report).where(Report.user_id == user_id)
+
+    if this_conversation:
+        current = get_conversation_id()
+        if current is None:
+            return []
+        stmt = stmt.where(Report.conversation_id == current)
+    elif conversation_id:
+        try:
+            cid = uuid.UUID(conversation_id.strip())
+        except ValueError as exc:
+            raise ValueError("invalid conversation_id") from exc
+        stmt = stmt.where(Report.conversation_id == cid)
+
+    if mentioned_client and mentioned_client.strip():
+        needle = normalize_mentioned_clients([mentioned_client])
+        if not needle:
+            return []
+        # Stored tags are lowercased; ARRAY.any → value = ANY(column).
+        stmt = stmt.where(Report.mentioned_clients.any(needle[0]))
+
+    stmt = stmt.order_by(Report.created_at.desc())
     with _get_sync_session() as session:
-        rows = session.scalars(
-            select(Report)
-            .where(Report.user_id == user_id)
-            .order_by(Report.created_at.desc())
-        ).all()
-        return [
-            {
-                "report_id": str(r.id),
-                "title": r.title,
-                "file_path": r.file_path,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-            }
-            for r in rows
-        ]
+        rows = session.scalars(stmt).all()
+        return [_report_to_dict(r) for r in rows]
 
 
 def get_report_for_user(report_id: str) -> dict:
@@ -260,42 +339,79 @@ def get_report_for_user(report_id: str) -> dict:
         )
         if row is None:
             raise PermissionError("report not found or not owned by this user")
-        path = Path(row.file_path)
-        if not path.is_file():
-            raise FileNotFoundError(f"report file missing: {path}")
-        html = path.read_text(encoding="utf-8")
-        return {
-            "report_id": str(row.id),
-            "title": row.title,
-            "file_path": row.file_path,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-            "html": html,
-        }
+        return _report_to_dict(row, include_html=True)
 
 
-def propose_delete_report(report_id: str) -> dict:
-    """Stage a deletion for confirmation. Does not delete."""
-    meta = get_report_for_user(report_id)
-    user_id = _require_user_id()
-    pending = PendingDeletion(
-        report_id=uuid.UUID(meta["report_id"]),
-        title=str(meta["title"]),
-        file_path=str(meta["file_path"]),
+def _stage_pending(user_id: str, reports: list[dict]) -> dict:
+    refs = tuple(
+        PendingReportRef(
+            report_id=uuid.UUID(str(r["report_id"])),
+            title=str(r["title"]),
+            file_path=str(r["file_path"]),
+        )
+        for r in reports
     )
+    pending = PendingDeletion(reports=refs)
     with _pending_lock:
         _pending_deletions[user_id] = pending
+    summary = [
+        {
+            "report_id": str(ref.report_id),
+            "title": ref.title,
+            "file_path": ref.file_path,
+        }
+        for ref in refs
+    ]
+    count = len(refs)
+    noun = "report" if count == 1 else "reports"
     return {
         "status": "awaiting_confirmation",
-        "report_id": meta["report_id"],
-        "title": meta["title"],
-        "file_path": meta["file_path"],
-        "created_at": meta.get("created_at"),
+        "count": count,
+        "reports": summary,
         "instruction": (
-            "Reply with exactly y (lowercase) on its own line to permanently delete "
-            "this report. Any other reply cancels the pending deletion. "
+            f"Reply with exactly y (lowercase) on its own line to permanently delete "
+            f"these {count} {noun}. Any other reply cancels the pending deletion. "
             "The server—not the model—enforces this confirmation."
         ),
     }
+
+
+def propose_delete_report(report_id: str) -> dict:
+    """Stage a single-report deletion for confirmation. Does not delete."""
+    meta = get_report_for_user(report_id)
+    user_id = _require_user_id()
+    return _stage_pending(user_id, [meta])
+
+
+def propose_delete_reports(
+    *,
+    conversation_id: str | None = None,
+    this_conversation: bool = False,
+    mentioned_client: str | None = None,
+) -> dict:
+    """Stage a bulk deletion by conversation and/or mentioned client. Does not delete."""
+    if not this_conversation and not (conversation_id and conversation_id.strip()) and not (
+        mentioned_client and mentioned_client.strip()
+    ):
+        raise ValueError(
+            "provide this_conversation=true, conversation_id, and/or mentioned_client"
+        )
+
+    rows = list_reports_for_user(
+        conversation_id=conversation_id or None,
+        this_conversation=this_conversation,
+        mentioned_client=mentioned_client or None,
+    )
+    if not rows:
+        return {
+            "status": "none_matched",
+            "count": 0,
+            "reports": [],
+            "message": "No owned reports matched the given filters.",
+        }
+
+    user_id = _require_user_id()
+    return _stage_pending(user_id, rows)
 
 
 def clear_pending_deletion(user_id: str) -> PendingDeletion | None:
@@ -344,30 +460,36 @@ def try_resolve_pending_deletion(user_id: str, message: str) -> dict | None:
 
     if is_delete_confirmation(message):
         clear_pending_deletion(user_id)
-        try:
-            deleted = delete_report_for_user(pending.report_id, user_id)
-        except Exception as exc:  # noqa: BLE001
+        deleted: list[dict] = []
+        errors: list[str] = []
+        for ref in pending.reports:
+            try:
+                deleted.append(delete_report_for_user(ref.report_id, user_id))
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{ref.title} ({ref.report_id}): {exc}")
+        if not deleted and errors:
             return {
                 "handled": True,
                 "outcome": "error",
-                "message": f"Could not delete report: {exc}",
+                "message": "Could not delete reports: " + "; ".join(errors),
             }
+        lines = [
+            f"Deleted report “{item['title']}” ({item['report_id']})."
+            for item in deleted
+        ]
+        if errors:
+            lines.append("Some deletes failed: " + "; ".join(errors))
         return {
             "handled": True,
             "outcome": "deleted",
-            "message": (
-                f"Deleted report “{deleted['title']}” "
-                f"({deleted['report_id']})."
-            ),
+            "message": "\n".join(lines),
         }
 
     # Any non-y reply while pending cancels; agent may still handle the message.
     clear_pending_deletion(user_id)
+    titles = ", ".join(f"“{ref.title}” ({ref.report_id})" for ref in pending.reports)
     return {
         "handled": False,
         "outcome": "cancelled",
-        "message": (
-            f"Cancelled pending deletion of “{pending.title}” "
-            f"({pending.report_id})."
-        ),
+        "message": f"Cancelled pending deletion of {titles}.",
     }

@@ -14,6 +14,7 @@ from chatbot.reports import (
     get_report,
     list_reports,
     propose_delete_report,
+    propose_delete_reports,
 )
 
 SYSTEM_PROMPT = """
@@ -28,14 +29,20 @@ For any question that needs numbers, trends, or comparisons:
 
 ## Saved HTML reports (required workflow)
 Tools:
-- create_html_report(title, body_html): save a styled HTML artifact for this user.
-  Pass INNER HTML only (h2, p, ul, table — no <html>/<body>). Include insights and
-  action items in the HTML when relevant.
-- list_reports(): list this user's saved reports.
+- create_html_report(title, body_html, mentioned_clients?): save a styled HTML
+  artifact for this user. Pass INNER HTML only (h2, p, ul, table — no
+  <html>/<body>). Include insights and action items when relevant.
+  When the report discusses named clients/brands/accounts, ALWAYS pass them in
+  mentioned_clients (e.g. ["Client X"]) so later filtered deletes work.
+- list_reports(this_conversation?, conversation_id?, mentioned_client?): list
+  this user's saved reports, optionally filtered.
 - get_report(report_id): load one report owned by this user.
-- propose_delete_report(report_id): ONLY way to start deleting a report. Shows
-  details and asks the user to confirm. There is NO delete tool — the server
-  deletes later only if the user replies with exactly `y`.
+- propose_delete_report(report_id): start deleting ONE report (confirmation required).
+- propose_delete_reports(this_conversation?, conversation_id?, mentioned_client?):
+  start bulk delete for matching owned reports (confirmation required).
+  Use for "delete all reports mentioning Client X" or "delete all reports from
+  this conversation". There is NO delete tool — the server deletes later only if
+  the user replies with exactly `y`.
 
 You MUST call create_html_report (not only chat text) when the user asks for any of:
 - a report, briefing, deck, or "write/create/save a report"
@@ -49,10 +56,10 @@ If the user asked a deep multi-section analysis question but did NOT explicitly 
 1) calling create_html_report with the structured findings, or
 2) asking one clear question: whether they want this saved as an HTML report.
 
-When the user asks to delete a report (or all reports mentioning X / from this chat):
-1. Use list_reports / get_report to identify the target(s).
-2. Call propose_delete_report for each report that should be removed (one at a time
-   if multiple — wait for confirmation between deletes).
+When the user asks to delete reports:
+1. Prefer propose_delete_reports with filters for bulk requests (mentioned client
+   and/or this_conversation=true). Use propose_delete_report only for a single id.
+2. You may call list_reports with the same filters first to preview matches.
 3. Tell the user to reply with exactly `y` to confirm, or anything else to cancel.
 4. NEVER claim a report was deleted yourself; only the server can delete after `y`.
 
@@ -74,6 +81,7 @@ def get_analysis_agent() -> CompiledStateGraph:
             list_reports,
             get_report,
             propose_delete_report,
+            propose_delete_reports,
         ],
         system_prompt=SYSTEM_PROMPT,
         middleware=[build_model_retry_middleware(settings)],

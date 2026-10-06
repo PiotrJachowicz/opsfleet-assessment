@@ -91,17 +91,21 @@ queries before BigQuery runs.
 
 The agent can create styled HTML report artifacts via tools:
 
-- `create_html_report` — writes `output/reports/*.html` and a per-user DB row
-- `list_reports` / `get_report` — scoped to the authenticated JWT user only
-- `propose_delete_report` — stages a delete and shows report details; **does not delete**
+- `create_html_report` — writes `output/reports/*.html` and a per-user DB row;
+  pass `mentioned_clients` when the report names clients/brands (stored lowercased)
+- `list_reports` / `get_report` — scoped to the authenticated JWT user; list can
+  filter by `this_conversation`, `conversation_id`, or `mentioned_client`
+- `propose_delete_report` — stages a single delete; **does not delete**
+- `propose_delete_reports` — stages a bulk delete by conversation and/or
+  mentioned client tag; **does not delete**
 
 **Deletion confirmation (prototype vs production):** In production, destructive
 report deletes would use a proper UI confirmation (modal / HITL interrupt) so the
 model never holds the delete trigger. In this prototype, after
-`propose_delete_report` the user must reply with exactly `y` (lowercase, alone).
-The **chat server** checks that string in application code and only then deletes
-the file + DB row. The model has no delete tool and cannot confirm deletion itself.
-Any other reply cancels the pending delete.
+`propose_delete_report` / `propose_delete_reports` the user must reply with exactly
+`y` (lowercase, alone). The **chat server** checks that string in application code
+and only then deletes the file(s) + DB row(s). The model has no delete tool and
+cannot confirm deletion itself. Any other reply cancels the pending delete.
 
 `output/` is gitignored. Run migrations after pull (`mise run migrate`).
 

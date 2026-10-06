@@ -1,4 +1,4 @@
-from chatbot.reports.store import render_report_html
+from chatbot.reports.store import normalize_mentioned_clients, render_report_html
 
 
 def test_render_report_html_includes_title_and_body() -> None:
@@ -11,3 +11,7 @@ def test_render_report_html_includes_title_and_body() -> None:
     assert "<h2>Insights</h2>" in html
     assert "Revenue up." in html
     assert "Prepared for Admin" in html
+
+
+def test_normalize_mentioned_clients_preserves_order() -> None:
+    assert normalize_mentioned_clients(["Beta", "Alpha", "beta"]) == ["beta", "alpha"]

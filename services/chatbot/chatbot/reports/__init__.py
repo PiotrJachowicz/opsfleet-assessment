@@ -3,6 +3,7 @@ from chatbot.reports.tools import (
     get_report,
     list_reports,
     propose_delete_report,
+    propose_delete_reports,
 )
 
 __all__ = [
@@ -10,4 +11,5 @@ __all__ = [
     "get_report",
     "list_reports",
     "propose_delete_report",
+    "propose_delete_reports",
 ]
