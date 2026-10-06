@@ -158,7 +158,9 @@ TODO: Decide between Vercel and Google Frontend offering
 
 User report snapshot files will be persisted in Cloud Storage.
 
-For agent observability, a managed LangSmith service is used. TODO: Application logs
+For agent observability, a managed LangSmith service is used for traces and evaluations.
+
+Application logs use the standard Python ``logging`` API. In production, the sink is **GCP Cloud Logging** (Cloud Run / ops agent ingestion of structured stdout, or the Cloud Logging handler). The prototype uses a local rotating **file sink** under ``output/logs`` (gitignored) so developers can inspect turn/tool/error logs without cloud setup; swapping the sink does not require changing call sites.
 
 Persistent storage is delivered via CloudSQL PostgreSQL database with pgvector for Golden Set embeddings.  
 
@@ -213,6 +215,8 @@ flowchart TB
     subgraph Operations["6. Observability and evaluation"]
         LangSmith["LangSmith
         Sanitized traces, debugging, evaluations"]
+        CloudLogging["GCP Cloud Logging
+        Application logs (prod sink)"]
     end
 
     UI -->|"Authenticated requests"| Backend
@@ -242,6 +246,8 @@ flowchart TB
 
     Backend -->|"PII-safe traces"| LangSmith
     Ingestion -->|"PII-safe ingestion traces"| LangSmith
+    Backend -->|"Application logs"| CloudLogging
+    Ingestion -->|"Application logs"| CloudLogging
 ```
 
 **Model strategy:** Flash is the default chat model as an optimized tradeoff between speed, quality and price. Pro is available as a choice for complex analysis. Both models are available as hosted Vertex APIs and exact model IDs are configurable via environment variables. Embeddings use `gemini-embedding-001` as default model (configurable via environment as well) at 768 dimensions, subject to retrieval evaluation.
@@ -315,6 +321,8 @@ The eval set should be extended whenever a new use case is identified and implem
 For algorithmic parts of the system, unit tests and end to end tests will be implemented.
 
 Live agent traces go to managed LangSmith. Trace payloads must remain PII-safe (email and phone scrubbed) before export.
+
+Application logs (request/auth failures, turn lifecycle, tool start/end, retries, unhandled errors) use Python ``logging``. Production ships them to **GCP Cloud Logging** via the Cloud Run logging integration (structured logs on stdout) or an explicit Cloud Logging handler. The prototype keeps the same logger calls but attaches a rotating **file sink** at ``output/logs/chatbot.log`` so local debugging does not depend on GCP. Prefer logging identifiers (``user_id``, ``conversation_id``, tool names) rather than raw user message text.
 
 ---
 

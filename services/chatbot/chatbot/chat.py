@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime
@@ -20,6 +21,8 @@ from chatbot.reports.store import (
     set_conversation_id,
     try_resolve_pending_deletion,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _iter_chunk_parts(content: Any) -> Iterator[tuple[str, str]]:
@@ -175,6 +178,12 @@ async def _stream_chat_turn_inner(
     # Deterministic delete confirmation: only an exact "y" deletes, in app code.
     pending_result = try_resolve_pending_deletion(request.user_id, safe_message)
     if pending_result is not None and pending_result.get("handled"):
+        logger.info(
+            "chat delete confirmed user_id=%s conversation_id=%s outcome=%s",
+            request.user_id,
+            conversation.id,
+            pending_result.get("outcome"),
+        )
         reply = sanitize_pii(str(pending_result["message"]))
         await _persist_assistant(
             session, conversation=conversation, content=reply
@@ -186,6 +195,11 @@ async def _stream_chat_turn_inner(
         }
         return
     if pending_result is not None and pending_result.get("outcome") == "cancelled":
+        logger.info(
+            "chat delete cancelled user_id=%s conversation_id=%s",
+            request.user_id,
+            conversation.id,
+        )
         # Surface cancel notice, then continue so the new message can be handled.
         cancel_note = sanitize_pii(str(pending_result["message"]))
         yield {"event": "token", "data": cancel_note + "\n\n"}
@@ -239,11 +253,18 @@ async def _stream_chat_turn_inner(
                         final_answer_parts.append(text)
 
             elif kind == "on_tool_start":
+                tool_name = event.get("name") or data.get("name") or "tool"
+                logger.info(
+                    "chat tool start user_id=%s conversation_id=%s tool=%s",
+                    request.user_id,
+                    conversation.id,
+                    tool_name,
+                )
                 yield {
                     "event": "tool",
                     "data": json.dumps(
                         {
-                            "name": event.get("name") or data.get("name") or "tool",
+                            "name": tool_name,
                             "status": "start",
                             "input": _preview(data.get("input")),
                         }
@@ -251,17 +272,29 @@ async def _stream_chat_turn_inner(
                 }
 
             elif kind == "on_tool_end":
+                tool_name = event.get("name") or "tool"
+                logger.info(
+                    "chat tool end user_id=%s conversation_id=%s tool=%s",
+                    request.user_id,
+                    conversation.id,
+                    tool_name,
+                )
                 yield {
                     "event": "tool",
                     "data": json.dumps(
                         {
-                            "name": event.get("name") or "tool",
+                            "name": tool_name,
                             "status": "end",
                             "output_preview": _preview(data.get("output")),
                         }
                     ),
                 }
     except asyncio.CancelledError:
+        logger.warning(
+            "chat turn cancelled user_id=%s conversation_id=%s",
+            request.user_id,
+            conversation.id,
+        )
         await _persist_assistant(
             session,
             conversation=conversation,
@@ -269,6 +302,11 @@ async def _stream_chat_turn_inner(
         )
         raise
     except Exception as exc:  # noqa: BLE001 - surface to SSE client
+        logger.exception(
+            "chat turn failed user_id=%s conversation_id=%s",
+            request.user_id,
+            conversation.id,
+        )
         yield {
             "event": "error",
             "data": json.dumps({"detail": sanitize_pii(str(exc))}),
@@ -279,6 +317,11 @@ async def _stream_chat_turn_inner(
         session,
         conversation=conversation,
         content=sanitize_pii("\n".join(final_answer_parts).strip()),
+    )
+    logger.info(
+        "chat turn done user_id=%s conversation_id=%s",
+        request.user_id,
+        conversation.id,
     )
     yield {
         "event": "done",

@@ -32,6 +32,10 @@ class Settings(BaseSettings):
     agent_recursion_limit: int = 25
     jwt_secret: str = "dev-jwt-secret-change-me"
     reports_dir: str = "output/reports"
+    logs_dir: str = "output/logs"
+    log_file_name: str = "chatbot.log"
+    log_max_bytes: int = 5_000_000
+    log_backup_count: int = 5
     langsmith_tracing: bool = False
     langsmith_api_key: str = ""
     langsmith_project: str = "opsfleet-chatbot"

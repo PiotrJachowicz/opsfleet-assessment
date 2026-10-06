@@ -25,6 +25,18 @@ The next user message is inspected by the server for an exact `y`; only then are
 matching reports removed. Production should replace this chat `y` gate with a UI
 confirmation flow — documented in the root `readme.md`.
 
+## Logging
+
+Uses the standard library ``logging`` package (no extra dependency).
+
+- **Prototype sink:** rotating file at `LOGS_DIR` / `LOG_FILE_NAME` (default
+  `output/logs/chatbot.log`), plus console via uvicorn. `output/` is gitignored.
+- **Production (HLD):** same logger API; swap the file sink for **GCP Cloud Logging**
+  (Cloud Run stdout / Cloud Logging handler). Call sites do not change.
+
+Useful fields logged: auth failures, chat turn start/done, tool start/end,
+delete confirm/cancel, turn errors. Message bodies are not written to logs.
+
 ## LangSmith (optional)
 
 No LangSmith config is required for local chat. Leave these unset (or

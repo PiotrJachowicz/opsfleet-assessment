@@ -107,7 +107,18 @@ model never holds the delete trigger. In this prototype, after
 and only then deletes the file(s) + DB row(s). The model has no delete tool and
 cannot confirm deletion itself. Any other reply cancels the pending delete.
 
-`output/` is gitignored. Run migrations after pull (`mise run migrate`).
+`output/` is gitignored (reports under `output/reports`, logs under `output/logs`).
+Run migrations after pull (`mise run migrate`).
+
+## Application logs
+
+Prototype logging uses Python’s stdlib ``logging`` with a rotating **file sink**
+at `services/chatbot/output/logs/chatbot.log` (configurable via `LOGS_DIR` /
+`LOG_FILE_NAME`). That path is for local debugging only.
+
+In production (see `docs/HLD.md`), the same log calls target **GCP Cloud Logging**
+by swapping the sink (Cloud Run structured stdout or the Cloud Logging handler)—
+no application call-site changes.
 
 CLI env: `CHAT_BASE_URL`, `CHAT_USER_PRESET`, `JWT_SECRET`.
 
